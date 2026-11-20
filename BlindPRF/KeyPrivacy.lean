@@ -17,8 +17,9 @@
        key.  (Security against such an A is the one-more Diffie–Hellman assumption, which is NOT
        proved here.  The type `G` models *validated* elements of the prime-order group; a B that
        does not check group membership is outside this model.)  The one class of deviating A that
-       IS reduced to the public key is in F: queries whose exponents in base `g` are computed by
-       A / the reduction (`keyGoalKE_eq_pkGoal`); queries involving the public key are not.
+       IS reduced to the public key is in F: queries whose exponents in base `g` are chosen by
+       A (`keyGoalKE_eq_pkGoal`, and the `send` nodes of `keyGoalOracle_eq_pkGoal`); queries
+       involving the public key or B's earlier replies are not.
   * C. Negative results: the signature, hence A's view, determines the key; a key extractor
        exists as a function; no correct protocol for this function can hide the key perfectly.
   * D. The programmed random oracle `H m = h m • g` with uniform exponents `h` IS a uniformly
@@ -39,7 +40,11 @@
        (`keyGoalRO_eq_pkGoal`, `keyGoalROInteractive_eq_pkGoal`, `keyRecoveryRO_eq_dlog`); the
        oracle visible only at query points declared in advance, with a solver that samples one
        exponent per declared point (`keyGoalQueried_eq_pkGoal`); a deviating A whose queries
-       have known exponents (`keyGoalKE_eq_pkGoal`).
+       have known exponents (`keyGoalKE_eq_pkGoal`); and, in a different adversary model, an A
+       given as a strategy tree with ADAPTIVE access to the oracle and to B, against a solver
+       that samples the oracle LAZILY, one exponent per point actually touched
+       (`keyGoalOracle_eq_pkGoal`; with hash values instead of exponents
+       `keyGoalOracleRO_eq_pkGoal`, `keyRecoveryOracleRO_eq_dlog`).
   * G. Sanity checks: the experiments are not degenerate (an unbounded solver wins with
        certainty, a guess independent of the public key wins with probability exactly `1/|F|`),
        and a strawman protocol that leaks `k` is separated from the real one by two theorems
@@ -47,31 +52,41 @@
 
   MODELLING LIMITS OF SECTION F (read these before quoting it).
 
-  * The random oracle is ONE FINITE TABLE (`[Fintype M]`), sampled up front and handed to the
-    adversary in full.  The solvers `pkSolver` / `dlogSolver` sample that whole table: `|M|`
-    scalars.  Read literally they are therefore efficient only when the table is small; for a
-    realistic message space (say 256-bit strings) they are exponential.  The standard remedy is
-    lazy sampling (one scalar per oracle query).  Only its static form is formalised here
-    (`keyGoalQueried_eq_pkGoal`: the points at which the oracle is ever looked at are fixed in
-    advance, and the solver samples one scalar per such point).  Lazy sampling for oracle queries
-    chosen adaptively by the adversary is NOT formalised.
-  * Goals are about the key only.  The adversary of section F is handed the oracle exponents, so
-    it can sign every message from the public key (`prf_progHash`); forgery-type goals are
-    meaningless in that experiment and out of scope of this file.
-  * A is honest-but-curious: it sends blinded hashes.  The only deviation covered is
-    `keyGoalKE_eq_pkGoal` (queries `x • g` with `x` computed by the reduction).  A query built
-    from the public key or from earlier replies makes B a static Diffie–Hellman oracle; nothing
-    is proved about that regime (see B).
+  * The random oracle is ONE FINITE TABLE (`[Fintype M]`), sampled up front.  In the experiments
+    whose adversary is a function of a view (`keyGoalExp`, `keyRecoveryExp`, their `RO`,
+    `Interactive` and `KE` variants) the table is handed to the adversary in full and the solvers
+    `pkSolver` / `dlogSolver` / `pkSolverKE` sample that whole table: `|M|` scalars.  Read
+    literally those solvers are efficient only when the table is small; for a realistic message
+    space (say 256-bit strings) they are exponential.  The remedy is lazy sampling (one scalar
+    per oracle query).  It is formalised in two forms: statically (`keyGoalQueried_eq_pkGoal`: the
+    points at which the oracle is ever looked at are fixed in advance) and adaptively
+    (`keyGoalOracle_eq_pkGoal`: the adversary is a strategy tree that queries the oracle and B
+    one step at a time; the solver `lazySolver` samples an exponent only when a new point is
+    touched, and is defined even for an infinite message space).  The adaptive form restricts
+    the adversary to a deterministic decision tree plus an independent random tape; its
+    continuations are arbitrary functions.
+  * "Proportional to the number of queries" is nowhere a theorem.  It is what one reads off
+    `Strategy.runLazy`.  The cache there is a function `M → Option F`; an implementation would
+    use a finite map.
+  * Goals are about the key only: functions of the key and of the adversary's output.  Where the
+    adversary is handed the oracle exponents it can sign every message from the public key
+    (`prf_progHash`), so forgery-type goals are meaningless there.  They are out of scope of this
+    file in every experiment, including those that show hash values only.
+  * A is honest-but-curious: it sends blinded hashes.  The only deviation covered is a query
+    `x • g` whose exponent `x` A chose itself (`keyGoalKE_eq_pkGoal`; `send` nodes in
+    `keyGoalOracle_eq_pkGoal`).  A query built from the public key or from earlier replies makes
+    B a static Diffie–Hellman oracle; nothing is proved about that regime (see B).
   * The mere existence of a solver is not the content of the reduction: with arbitrary functions
     as solvers even the leaky strawman "reduces to discrete log"
     (`keyRecoveryGame_leaky_eq_dlog_unbounded`).  The content is the explicit form of the solver.
 
   No hardness assumption (discrete log, DDH, one-more-DH) is proved or assumed anywhere.  Lean has
   no cost model: "the simulator / the solver is efficient" is a claim to be checked by reading
-  the definitions `simReply`, `viewsSim`, `viewsKESim`, `pkSolver`, `pkSolverKE`, `dlogSolver`;
-  the docstring of `pkSolver` lists what it does.  None of them takes `k` or a discrete logarithm
-  as input.  The solvers call the message-selection rule and the adversary as black boxes, so
-  they are only as efficient as those are.
+  the definitions `simReply`, `viewsSim`, `viewsKESim`, `pkSolver`, `pkSolverKE`, `dlogSolver`,
+  `Strategy.runLazy`, `lazySolver`; the docstrings of `pkSolver` and `Strategy.runLazy` list what
+  they do.  None of them takes `k` or a discrete logarithm as input.  The solvers call the
+  message-selection rule, the adversary and the strategy's continuations as black boxes, so they
+  are only as efficient as those are.
 
   Everything lives in the namespace `BlindPRF.KeyPrivacy`.
 -/
@@ -399,7 +414,7 @@ pairwise distinct points `qs : κ → M`, is a uniformly random table `κ → α
 
 So an experiment that touches the oracle only at points fixed in advance may sample one value per
 point instead of the whole table.  This does NOT cover points chosen adaptively (as a function of
-earlier oracle answers); that is the usual lazy-sampling argument, which is not formalised. -/
+earlier oracle answers); for those see `unif_bind_update` and `keyGoalOracle_eq_pkGoal`. -/
 theorem unif_comp_injective {X κ α : Type*} [Fintype X] [DecidableEq X] [Fintype κ]
     [DecidableEq κ] [Fintype α] [Nonempty α] {qs : κ → X} (hqs : Function.Injective qs) :
     (unif (X → α)).map (fun h : X → α => h ∘ qs) = unif (κ → α) := by
@@ -629,9 +644,11 @@ what it does (read off this definition; Lean has no cost model, so this is not a
 * runs the adversary once.
 
 Because of the first item the solver is efficient, as written, only when the table `M` is small.
-With lazy sampling the table costs one scalar per oracle query; that is formalised here only for
-query points fixed in advance (`keyGoalQueried_eq_pkGoal`, where the role of `M` is played by the
-set of declared query points). -/
+With lazy sampling the table costs one scalar per oracle query.  That is formalised for query
+points fixed in advance (`keyGoalQueried_eq_pkGoal`, where the role of `M` is played by the set of
+declared query points) and, for an adversary given as a strategy tree with adaptive oracle
+access, by the different solver `lazySolver` (`keyGoalOracle_eq_pkGoal`).  For THIS solver, whose
+adversary is an arbitrary function of the whole table, no lazy version exists. -/
 noncomputable def pkSolver (choose : G → (M → F) → (ι → Fˣ) → ι → M)
     (Adv : View F G M ι → PMF β) : G → PMF β := fun pk =>
   (unif (M → F)).bind fun h => (unif (ι → Fˣ)).bind fun rs =>
@@ -659,7 +676,8 @@ What this does NOT claim.
   `k • g`.  Under a generator hypothesis an unbounded solver computes `k` itself
   (`dlogExp_unbounded_solver`).
 * No efficiency theorem: the cost of the solver is the inventory in the docstring of `pkSolver`;
-  it includes sampling the whole oracle table.
+  it includes sampling the whole oracle table.  (The reduction whose solver samples the oracle
+  lazily is `keyGoalOracle_eq_pkGoal`.)
 * Goals are functions of the key and the output only.  Forgery-type goals are out of scope: here
   the adversary is handed the exponents `h` and can sign every message from the public key
   (`prf_progHash`).
@@ -760,8 +778,9 @@ What the solver costs (by inspection of `dlogSolver`; Lean has no cost model): o
 adversary, `|ι|` coins, `|ι|` field multiplications, `|ι|` scalar multiplications, AND sampling
 the whole oracle exponent table, `|M|` scalars.  So the reduction as literally stated is
 efficient only for a small table `M`.  For a large message space one needs lazy sampling of the
-oracle (one scalar per oracle query); only the case of query points fixed in advance is
-formalised (`keyGoalQueried_eq_pkGoal`).
+oracle (one scalar per oracle query).  That is a different experiment and a different solver:
+`keyGoalQueried_eq_pkGoal` (query points fixed in advance) and `keyRecoveryOracle_eq_dlog` /
+`keyRecoveryOracleRO_eq_dlog` (adversary given as a strategy tree with adaptive oracle access).
 
 Scope: an honest-but-curious A (it blinds as prescribed), any finite number of sessions, messages
 chosen as a function of the random oracle; the adversary is even handed the oracle exponents and
@@ -921,9 +940,10 @@ samples `|κ|` exponents and `|ι|` coins, does `|ι|` field multiplications and
 multiplications and runs the adversary once.  Its work does not depend on `|M|`.
 
 What this does NOT cover: an adversary that chooses its oracle queries adaptively, or that looks
-at the oracle outside the declared points (the general lazy-sampling argument); those are not
-formalised.  The other non-claims of `keyGoal_eq_pkGoal` apply (honest blinding; goals about the
-key only; no hardness proved or assumed; "efficient" is by inspection). -/
+at the oracle outside the declared points.  Adaptive queries are the subject of
+`keyGoalOracle_eq_pkGoal`, in a different adversary model (strategy trees).  The other non-claims
+of `keyGoal_eq_pkGoal` apply (honest blinding; goals about the key only; no hardness proved or
+assumed; "efficient" is by inspection). -/
 theorem keyGoalQueried_eq_pkGoal {κ : Type*} [Fintype κ] [DecidableEq κ] (g : G)
     {qs : κ → M} (hqs : Function.Injective qs) (choose : G → (κ → F) → (ι → Fˣ) → ι → κ)
     (Adv : View F G κ ι → PMF β) (goal : F → β → γ) :
@@ -963,8 +983,9 @@ Scope and non-claims are those of `keyGoal_eq_pkGoal`: honest-but-curious A only
 deterministic function of the public key, the hash table and the coins; goals are functions of
 the key and the output only (in particular NOT forgery, which would be a goal about the hash
 table as well); the adversary receives the whole finite table and the solver samples and
-programs all of it (`|M|` scalars and `|M|` scalar multiplications); no hardness is proved or
-assumed; the random oracle is an idealisation of the hash function. -/
+programs all of it (`|M|` scalars and `|M|` scalar multiplications; for a solver that programs
+the oracle lazily see `keyGoalOracleRO_eq_pkGoal`); no hardness is proved or assumed; the random
+oracle is an idealisation of the hash function. -/
 theorem keyGoalRO_eq_pkGoal [Fintype G] {g : G} (hg : IsGenerator F g)
     (choose : G → (M → G) → (ι → Fˣ) → ι → M) (Adv : ViewRO F G M ι → PMF β)
     (goal : F → β → γ) :
@@ -1032,9 +1053,10 @@ Scope and non-claims are those of `keyRecovery_eq_dlog`: honest-but-curious A on
 function of the hash table (for messages depending also on the public key and the coins use
 `keyGoalRO_eq_pkGoal`), any finite number of sessions; the adversary receives the whole finite
 hash table and the solver samples and programs all of it (`|M|` scalars and `|M|` scalar
-multiplications: efficient, as written, only for a small table; lazy sampling for an adversary
-with adaptive oracle access is not formalised); hardness of discrete logarithms is neither proved
-nor assumed; the random oracle is an idealisation of the hash function. -/
+multiplications: efficient, as written, only for a small table; the version with adaptive oracle
+access and a lazily programming solver is `keyRecoveryOracleRO_eq_dlog`, in the strategy-tree
+model); hardness of discrete logarithms is neither proved nor assumed; the random oracle is an
+idealisation of the hash function. -/
 theorem keyRecoveryRO_eq_dlog [Fintype G] {g : G} (hg : IsGenerator F g)
     (choose : (M → G) → ι → M) (Adv : ViewRO F G M ι → PMF F) :
     keyRecoveryExpRO g choose Adv =
@@ -1087,7 +1109,9 @@ statement is empty as a reduction.  Such queries turn B into a static Diffie–H
 that regime (Brown–Gallant, Cheon; one-more Diffie–Hellman for unforgeability) is neither proved
 nor assumed here, and a real dishonest A is not restricted to known-exponent queries.  Same
 further non-claims as `keyGoal_eq_pkGoal`: goals about the key only; no hardness; the solver
-samples the whole oracle table. -/
+samples the whole oracle table.  (Known-exponent queries chosen one at a time, each after seeing
+B's earlier replies, against a lazily sampling solver: the `send` nodes of
+`keyGoalOracle_eq_pkGoal`.) -/
 theorem keyGoalKE_eq_pkGoal (ρ : PMF Ω) (g : G) (query : Ω → G → (M → F) → ι → F)
     (Adv : Ω → ViewKE F G M ι → PMF β) (goal : F → β → γ) :
     keyGoalExpKE ρ g query Adv goal = pkGoalExp g (pkSolverKE ρ query Adv) goal := by
@@ -1097,13 +1121,364 @@ omit [Fintype F] [Fintype M] [DecidableEq M] in
 /-- Reply-dependent choice of the exponents is of the form allowed in `keyGoalExpKE`: if A picks
 the exponent of each query after seeing B's earlier replies (rule `next`), the exponents it ends
 up using in a real execution are those computed by replaying the rule with replies `x • pk`
-computed from the public key.  Pointwise, no probability. -/
+computed from the public key.  Pointwise, no probability; the statement about experiments is
+`keyGoalOracle_eq_pkGoal` (`send` nodes). -/
 theorem interactiveExponents_real_eq_sim {n : ℕ} (g : G) (k : F) (next : List G → F) :
     interactiveMsgs (fun x (_ : Unit) => evaluate k (x • g)) next (fun _ : Fin n => ()) =
       interactiveMsgs (fun x _ => x • (k • g)) next fun _ => () := by
   simp only [evaluate_smul_gen]
 
 end KnownExponent
+
+/-! ### Adaptive access to the oracle and to B: strategy trees and a lazily sampling solver -/
+
+section LazySampling
+
+universe uA uK uP uX uβ
+
+/-- A deterministic strategy of party A (together with whatever adversary looks over its
+shoulder) that accesses the oracle and B *adaptively*.  It is a decision tree with four kinds of
+nodes:
+
+* `done out`: stop and output `out`;
+* `ask m cont`: ask the oracle at the point `m` and continue with its answer;
+* `session m cont`: run one honest session on the message `m`.  The experiment samples the
+  blinding coin; the continuation receives that coin and B's reply;
+* `send x cont`: a DEVIATION from the protocol: send B the group element `x • g`, where the
+  exponent `x` is chosen by the strategy, and continue with B's reply.
+
+`A` is the type of oracle answers (exponents in the programmed model, group elements in the
+random-oracle model), `K` the scalars, `P` the group, `X` the messages, `β` the outputs.  The
+continuations are arbitrary functions: the strategy is computationally unbounded.  Every oracle
+point, every message and every exponent may depend on everything seen so far.
+
+What a strategy can NOT do: send B a group element that is not an honest blinded hash and whose
+exponent in base `g` it has not chosen itself (for instance the public key, or an earlier reply
+of B).  That is the static Diffie–Hellman regime of section B. -/
+inductive Strategy (A : Type uA) (K : Type uK) (P : Type uP) (X : Type uX) (β : Type uβ)
+    [Monoid K] : Type (max uA uK uP uX uβ)
+  /-- Stop and output `out`. -/
+  | done (out : β) : Strategy A K P X β
+  /-- Ask the oracle at the point `m`; continue with its answer. -/
+  | ask (m : X) (cont : A → Strategy A K P X β) : Strategy A K P X β
+  /-- Run one honest session on the message `m`; continue with the coin and B's reply. -/
+  | session (m : X) (cont : Kˣ → P → Strategy A K P X β) : Strategy A K P X β
+  /-- Deviation: send B the multiple of the generator with exponent `x`; continue with B's
+  reply. -/
+  | send (x : K) (cont : P → Strategy A K P X β) : Strategy A K P X β
+
+namespace Strategy
+
+variable {A A' β : Type*}
+
+/-- Run a strategy when the oracle answers `ans m` at the point `m`, B's reply in an honest
+session on message `m` with coin `r` is `reply m r`, and B's reply to the deviating query with
+exponent `x` is `raw x`.  The coin of each honest session is sampled uniformly among the nonzero
+scalars, as the protocol prescribes. -/
+noncomputable def run [Fintype F] [DecidableEq F] (ans : M → A) (reply : M → Fˣ → G)
+    (raw : F → G) : Strategy A F G M β → PMF β
+  | .done out => PMF.pure out
+  | .ask m cont => (cont (ans m)).run ans reply raw
+  | .session m cont => (unif Fˣ).bind fun r => (cont r (reply m r)).run ans reply raw
+  | .send x cont => (cont (raw x)).run ans reply raw
+
+/-- Run a strategy *from the public key* `pk`, sampling the oracle lazily.  `c` is the cache of
+the exponents fixed so far.  Inventory, per node of the path that is actually taken (read off this
+definition; Lean has no cost model):
+
+* `ask m`: one cache lookup; if `m` is new, one fresh uniform exponent, stored in the cache;
+* `session m`: one cache lookup and possibly one fresh exponent as above, one uniform nonzero
+  coin, one field multiplication, one scalar multiplication of `pk`;
+* `send x`: one scalar multiplication of `pk`.
+
+Neither the key nor a discrete logarithm is an input, and nothing depends on the size of the
+message space.  (The cache is modelled as a function `M → Option F` updated at one point; an
+implementation would use a finite map.) -/
+noncomputable def runLazy [Fintype F] [DecidableEq F] [DecidableEq M] (pk : G) :
+    Strategy F F G M β → (M → Option F) → PMF β
+  | .done out, _ => PMF.pure out
+  | .ask m cont, c =>
+    match c m with
+    | some e => (cont e).runLazy pk c
+    | none => (unif F).bind fun e => (cont e).runLazy pk (Function.update c m (some e))
+  | .session m cont, c =>
+    match c m with
+    | some e => (unif Fˣ).bind fun r => (cont r (((r : F) * e) • pk)).runLazy pk c
+    | none => (unif F).bind fun e => (unif Fˣ).bind fun r =>
+        (cont r (((r : F) * e) • pk)).runLazy pk (Function.update c m (some e))
+  | .send x cont, c => (cont (x • pk)).runLazy pk c
+
+/-- Turn a strategy that expects oracle answers of type `A` into one that expects answers of type
+`A'`, by translating each answer with `f`.  Used with `f e = e • g`: a strategy that sees hash
+values becomes a strategy that is given exponents and only looks at the corresponding hash
+values.  One application of `f` per oracle query. -/
+def mapAns (f : A' → A) : Strategy A F G M β → Strategy A' F G M β
+  | .done out => .done out
+  | .ask m cont => .ask m fun a => (cont (f a)).mapAns f
+  | .session m cont => .session m fun r b => (cont r b).mapAns f
+  | .send x cont => .send x fun b => (cont b).mapAns f
+
+omit [AddCommGroup G] [Module F G] in
+/-- Running a translated strategy is running the original strategy against the translated
+oracle. -/
+theorem run_mapAns [Fintype F] [DecidableEq F] (f : A' → A) (ans : M → A') (reply : M → Fˣ → G)
+    (raw : F → G) (s : Strategy A F G M β) :
+    (s.mapAns f).run ans reply raw = s.run (f ∘ ans) reply raw := by
+  induction s with
+  | done out => rfl
+  | ask m cont ih => simp only [mapAns, run, ih, Function.comp_apply]
+  | session m cont ih => simp only [mapAns, run, ih]
+  | send x cont ih => simp only [mapAns, run, ih]
+
+/-- Sanity check of the `session` node: the strategy "run one session on `m` and output what you
+saw" produces exactly the distribution of A's view `viewA` of an honest session. -/
+theorem run_session_done [Fintype F] [DecidableEq F] (H : M → G) (k : F) (ans : M → A)
+    (raw : F → G) (m : M) :
+    (session m fun r b => done (m, r, b) : Strategy A F G M (M × Fˣ × G)).run ans
+        (fun m r => evaluate k (blind H m r)) raw = (unif Fˣ).map (viewA H k m) :=
+  rfl
+
+/-- Sanity check of the cache: the lazily sampled oracle is consistent.  A strategy that asks the
+same point twice gets the same answer twice. -/
+theorem runLazy_ask_twice [Fintype F] [DecidableEq F] [DecidableEq M] (pk : G) (m : M) :
+    (ask m fun e => ask m fun e' => done (decide (e = e')) : Strategy F F G M Bool).runLazy pk
+        (fun _ => none) = PMF.pure true := by
+  simp only [runLazy, Function.update_self, decide_true, PMF.bind_const]
+
+/-- Sanity check of the cache across node kinds: the exponent that the lazy run uses to answer a
+session on `m` is the one it later reveals when the strategy asks the oracle at `m`. -/
+theorem runLazy_session_then_ask [Fintype F] [DecidableEq F] [DecidableEq M] [DecidableEq G]
+    (pk : G) (m : M) :
+    (session m fun r b => ask m fun e => done (decide (b = ((r : F) * e) • pk)) :
+      Strategy F F G M Bool).runLazy pk (fun _ => none) = PMF.pure true := by
+  simp only [runLazy, Function.update_self, decide_true, PMF.bind_const]
+
+/-- Sanity check of the `send` node: run from the public key, the reply to the deviating query
+with exponent `x` is `x • pk`. -/
+theorem runLazy_send_done [Fintype F] [DecidableEq F] [DecidableEq M] (pk : G) (x : F)
+    (c : M → Option F) : (send x done : Strategy F F G M G).runLazy pk c = PMF.pure (x • pk) :=
+  rfl
+
+end Strategy
+
+/-- The oracle table `h` overridden by the entries fixed in the cache `c`. -/
+def overlay (c : M → Option F) (h : M → F) : M → F := fun m => (c m).getD (h m)
+
+omit [Field F] in
+/-- At a point that the cache does not fix, the overlaid table is the underlying table. -/
+theorem overlay_apply_of_none {c : M → Option F} {m : M} (hc : c m = none) (h : M → F) :
+    overlay c h m = h m := by
+  simp [overlay, hc]
+
+omit [Field F] in
+/-- At a point that the cache fixes, the overlaid table has the cached value. -/
+theorem overlay_apply_of_some {c : M → Option F} {m : M} {e : F} (hc : c m = some e)
+    (h : M → F) : overlay c h m = e := by
+  simp [overlay, hc]
+
+omit [Field F] in
+/-- Fixing a new point in the cache is the same as writing the value into the underlying
+table. -/
+theorem overlay_update [DecidableEq M] {c : M → Option F} {m : M} (hc : c m = none) (e : F)
+    (h : M → F) :
+    overlay (Function.update c m (some e)) h = overlay c (Function.update h m e) := by
+  funext m'
+  by_cases hm : m' = m
+  · subst hm
+    simp [overlay, hc]
+  · simp [overlay, hm]
+
+variable {β γ Ω : Type*} [Fintype F] [DecidableEq F] [Fintype M] [DecidableEq M]
+
+omit [DecidableEq F] in
+/-- **Resampling one entry of a uniform table.**  Sampling a table uniformly and reading its entry
+at `x` is the same as sampling the entry `a` separately and writing it into an independent uniform
+table.  This is the step that makes lazy sampling correct for a point chosen adaptively. -/
+theorem unif_bind_update {α : Type*} [Fintype α] [Nonempty α] (x : M)
+    (Φ : α → (M → α) → PMF γ) :
+    ((unif α).bind fun a => (unif (M → α)).bind fun h => Φ a (Function.update h x a)) =
+      (unif (M → α)).bind fun h => Φ (h x) h := by
+  let e : α × (M → α) ≃ (M → α) × α :=
+    { toFun := fun p => (Function.update p.2 x p.1, p.2 x)
+      invFun := fun q => (q.1 x, Function.update q.1 x q.2)
+      left_inv := fun p => by simp
+      right_inv := fun q => by simp }
+  rw [← unif_prod_bind fun p : α × (M → α) => Φ p.1 (Function.update p.2 x p.1),
+    unif_bind_eq_of_equiv e _ (fun q : (M → α) × α => Φ (q.1 x) q.1) (fun p => by simp [e]),
+    unif_prod_bind]
+  simp only [PMF.bind_const]
+
+/-- **Lazy sampling is exact, for adaptively chosen oracle points.**  Run a strategy in the real
+world (key `k`, a uniformly random table of exponents overridden by the cache `c`, B answering
+honest queries with `k`), and average over the table: the result is the lazy run from the public
+key `k • g` started with the cache `c`. -/
+theorem Strategy.bind_run_overlay_eq_runLazy (g : G) (k : F) (s : Strategy F F G M β)
+    (c : M → Option F) :
+    ((unif (M → F)).bind fun h =>
+        s.run (overlay c h) (fun m r => evaluate k (blind (progHash g (overlay c h)) m r))
+          fun x => evaluate k (x • g)) =
+      s.runLazy (k • g) c := by
+  induction s generalizing c with
+  | done out => simp only [Strategy.run, Strategy.runLazy, PMF.bind_const]
+  | ask m cont ih =>
+    simp only [Strategy.run, Strategy.runLazy]
+    rcases hc : c m with _ | e
+    · simp only [← ih, overlay_apply_of_none hc, overlay_update hc]
+      exact (unif_bind_update m fun e h' => (cont e).run (overlay c h')
+        (fun m r => evaluate k (blind (progHash g (overlay c h')) m r))
+        fun x => evaluate k (x • g)).symm
+    · simp only [overlay_apply_of_some hc, ih]
+  | session m cont ih =>
+    simp only [Strategy.run, Strategy.runLazy, evaluate_blind_progHash]
+    rcases hc : c m with _ | e
+    · simp only [← ih, overlay_apply_of_none hc, overlay_update hc, evaluate_blind_progHash]
+      rw [← unif_bind_update m fun e h' => (unif Fˣ).bind fun r =>
+        (cont r (((r : F) * e) • k • g)).run (overlay c h')
+          (fun m r => ((r : F) * overlay c h' m) • k • g) fun x => evaluate k (x • g)]
+      congr 1
+      funext e
+      exact PMF.bind_comm _ _ _
+    · simp only [overlay_apply_of_some hc, ← ih, evaluate_blind_progHash]
+      exact PMF.bind_comm _ _ _
+  | send x cont ih => simp only [Strategy.run, Strategy.runLazy, ← ih, evaluate_smul_gen]
+
+/-- The key-goal experiment against an A with ADAPTIVE access to the oracle and to B, in the
+programmed model.  A uniformly random key `k` and a uniformly random table of oracle exponents
+`h` (over the whole, arbitrarily large, finite message space) are sampled.  The strategy
+`t (k • g)` is run: each `ask m` is answered with the exponent `h m` (more than the hash value
+`h m • g`), each `session m` is an honest session with B on the message `m` with a fresh uniform
+coin, each `send x` is answered by B with `k • (x • g)`.  The result is `goal k out`. -/
+noncomputable def keyGoalExpOracle (g : G) (t : G → Strategy F F G M β) (goal : F → β → γ) :
+    PMF γ :=
+  (unif F).bind fun k => (unif (M → F)).bind fun h =>
+    ((t (k • g)).run h (fun m r => evaluate k (blind (progHash g h) m r))
+      fun x => evaluate k (x • g)).map (goal k)
+
+/-- The explicit solver built from a strategy: on input `pk` it runs the strategy from the public
+key with a lazily sampled oracle, starting with the empty cache.  It never sees `k`.  What it
+does is the inventory in the docstring of `Strategy.runLazy`: per oracle point touched at most one
+fresh exponent, per session one coin, one field multiplication and one scalar multiplication,
+per deviating query one scalar multiplication.  Unlike `pkSolver` it is defined without any
+finiteness assumption on the message space: it cannot be sampling an oracle table. -/
+noncomputable def lazySolver (t : G → Strategy F F G M β) : G → PMF β := fun pk =>
+  (t pk).runLazy pk fun _ => none
+
+/-- **The reduction with adaptive access to the oracle and to B, and a lazily sampling solver.**
+For every strategy tree `t` (messages, oracle points, deviating exponents and the number of
+sessions all chosen adaptively, as a function of the public key and of everything seen so far)
+and every goal about the key, the experiment over a full uniformly random oracle table equals the
+public-key experiment played by the explicit solver `lazySolver t`.
+
+Why this matters: unlike `pkSolver`, this solver does not sample the oracle table.  Its work is
+proportional to the number of oracle queries, sessions and deviating queries that the strategy
+itself makes and does not depend on the size `|M|` of the message space.  That is read off
+`Strategy.runLazy`; Lean has no cost model, so it is not a theorem.  (Machine-checked proxy:
+`lazySolver` type-checks for an infinite message space, see the end of the file.)  The equality
+holds in every module.
+
+Scope.  The strategy is deterministic and unbounded; for a randomized one see
+`keyGoalOracle_mixture_eq_pkGoal`.  Honest sessions use a fresh uniform nonzero coin sampled by
+the experiment and are atomic (query, then reply).  Since B is stateless this includes concurrent
+schedules: a schedule in which a later query is sent before an earlier reply arrives is a
+strategy whose later query does not depend on that reply.  The only deviation from the protocol
+is `send x` (the group element `x • g` with `x` chosen by the strategy; since `ask` returns
+exponents this includes unblinded hashes, hashes blinded with a coin of A's choice, sums of
+hashes, and `0`).  The oracle returns exponents; the version with hash values is
+`keyGoalOracleRO_eq_pkGoal`.
+
+What this does NOT claim: no hardness of any problem about `k • g`; nothing about goals that
+mention the oracle (forgery; the strategy may learn every exponent); nothing about an A that
+sends B the public key, an earlier reply, or any other group element whose exponent it has not
+chosen (the static Diffie–Hellman regime of section B); the solver is only as efficient as the
+strategy's own continuations. -/
+theorem keyGoalOracle_eq_pkGoal (g : G) (t : G → Strategy F F G M β) (goal : F → β → γ) :
+    keyGoalExpOracle g t goal = pkGoalExp g (lazySolver t) goal := by
+  unfold keyGoalExpOracle pkGoalExp lazySolver
+  congr 1
+  funext k
+  rw [← Strategy.bind_run_overlay_eq_runLazy g k, PMF.map_bind]
+  rfl
+
+/-- Exact key recovery with adaptive access to the oracle and to B is the discrete-logarithm
+experiment played by the lazily sampling solver.  (`keyGoalOracle_eq_pkGoal` for the goal "the
+output is the key"; same scope and non-claims.) -/
+theorem keyRecoveryOracle_eq_dlog (g : G) (t : G → Strategy F F G M F) :
+    keyGoalExpOracle g t (fun k k' => decide (k' = k)) = dlogExp g (lazySolver t) :=
+  keyGoalOracle_eq_pkGoal g t _
+
+/-- The converse (trivial) direction: a function of the public key is a strategy, namely the one
+that touches neither the oracle nor B.  So the strategy experiments are not easier than the
+public-key experiments. -/
+theorem pkGoal_eq_keyGoalOracle (g : G) (f : G → β) (goal : F → β → γ) :
+    pkGoalExp g (fun pk => PMF.pure (f pk)) goal =
+      keyGoalExpOracle (M := M) g (fun pk => Strategy.done (f pk)) goal := by
+  simp only [keyGoalExpOracle, pkGoalExp, Strategy.run, PMF.bind_const]
+
+/-- **Randomized strategies.**  If the strategy also depends on a random tape `ω` (distribution
+`ρ`, independent of the key and the oracle), the mixture of the experiments equals the public-key
+experiment for the solver that samples the tape itself and then runs lazily. -/
+theorem keyGoalOracle_mixture_eq_pkGoal (ρ : PMF Ω) (g : G) (t : Ω → G → Strategy F F G M β)
+    (goal : F → β → γ) :
+    (ρ.bind fun ω => keyGoalExpOracle g (t ω) goal) =
+      pkGoalExp g (fun pk => ρ.bind fun ω => lazySolver (t ω) pk) goal := by
+  simp only [keyGoalOracle_eq_pkGoal, pkGoalExp, PMF.map_bind]
+  exact PMF.bind_comm _ _ _
+
+/-- The key-goal experiment with adaptive access to the oracle and to B in the genuine
+random-oracle model: the hash function `H : M → G` is uniformly random, `ask m` is answered with
+the hash value `H m` (no exponents anywhere), `session m` is an honest session with B, and
+`send x` is answered by B with `k • (x • g)`. -/
+noncomputable def keyGoalExpOracleRO [Fintype G] (g : G) (t : G → Strategy G F G M β)
+    (goal : F → β → γ) : PMF γ :=
+  (unif F).bind fun k => (unif (M → G)).bind fun H =>
+    ((t (k • g)).run H (fun m r => evaluate k (blind H m r))
+      fun x => evaluate k (x • g)).map (goal k)
+
+/-- **Random-oracle model, adaptive access, lazily sampling solver.**  Let `g` generate the
+group.  For every strategy tree that sees hash values only and every goal about the key, the
+random-oracle experiment equals the public-key experiment played by `lazySolver` applied to the
+translated strategy: the solver answers a hash query at a new point with `e • g` for a fresh
+exponent `e` that it keeps to itself, and computes B's replies from the public key.
+
+Per oracle point touched: at most one fresh exponent, and one scalar multiplication per hash
+query; per session one coin, one field multiplication, one scalar multiplication; nothing depends
+on `|M|` (by inspection of `Strategy.runLazy` and `Strategy.mapAns`; no cost model).
+
+Scope and non-claims: those of `keyGoalOracle_eq_pkGoal`, with one further restriction.  In this
+model a deviating query `send x` is a multiple of `g` only.  A deviating query built from a hash
+value (say `c • H m` with `c` chosen by A) is not a node of such a strategy; it is expressible in
+the exponent model (`ask m`, then `send (c * e)`), which `keyGoalOracle_eq_pkGoal` covers.  The
+random oracle is an idealisation of the hash function. -/
+theorem keyGoalOracleRO_eq_pkGoal [Fintype G] {g : G} (hg : IsGenerator F g)
+    (t : G → Strategy G F G M β) (goal : F → β → γ) :
+    keyGoalExpOracleRO g t goal =
+      pkGoalExp g (lazySolver fun pk => (t pk).mapAns fun e : F => e • g) goal := by
+  rw [← keyGoalOracle_eq_pkGoal]
+  unfold keyGoalExpOracleRO keyGoalExpOracle
+  rw [← progHash_uniform hg]
+  simp only [PMF.bind_map, Strategy.run_mapAns]
+  rfl
+
+/-- Randomized strategies in the random-oracle model (as `keyGoalOracle_mixture_eq_pkGoal`). -/
+theorem keyGoalOracleRO_mixture_eq_pkGoal [Fintype G] {g : G} (hg : IsGenerator F g) (ρ : PMF Ω)
+    (t : Ω → G → Strategy G F G M β) (goal : F → β → γ) :
+    (ρ.bind fun ω => keyGoalExpOracleRO g (t ω) goal) =
+      pkGoalExp g (fun pk => ρ.bind fun ω =>
+        lazySolver (fun pk => (t ω pk).mapAns fun e : F => e • g) pk) goal := by
+  simp only [keyGoalOracleRO_eq_pkGoal hg, pkGoalExp, PMF.map_bind]
+  exact PMF.bind_comm _ _ _
+
+/-- **Key recovery with adaptive access, in the random-oracle model, reduces to discrete
+logarithm with a lazily sampling solver.**  (`keyGoalOracleRO_eq_pkGoal` for the goal "the output
+is the key"; same scope and non-claims.  This is the form of the reduction whose solver does work
+proportional to the adversary's own number of queries, by inspection.) -/
+theorem keyRecoveryOracleRO_eq_dlog [Fintype G] {g : G} (hg : IsGenerator F g)
+    (t : G → Strategy G F G M F) :
+    keyGoalExpOracleRO g t (fun k k' => decide (k' = k)) =
+      dlogExp g (lazySolver fun pk => (t pk).mapAns fun e : F => e • g) :=
+  keyGoalOracleRO_eq_pkGoal hg t _
+
+end LazySampling
 
 /-! ## G. Sanity checks: the experiments are not degenerate -/
 
@@ -1171,6 +1546,31 @@ theorem keyRecoveryExp_zero (choose : (M → F) → ι → M) (Adv : View F G M 
     keyRecoveryExp (0 : G) choose Adv true = (Fintype.card F : ℝ≥0∞)⁻¹ := by
   rw [keyRecovery_eq_dlog, ← dlogExp_indep_guess (0 : G) (dlogSolver choose Adv 0)]
   simp only [dlogExp, smul_zero]
+
+/-- The strategy experiment of `keyGoalOracle_eq_pkGoal` is not unwinnable: if `g` generates the
+group, an unbounded strategy (one whose continuation takes a discrete logarithm; it touches
+neither the oracle nor B) wins exact key recovery with certainty.  So that theorem, too, is about
+computational hardness only. -/
+theorem keyRecoveryOracle_unbounded_strategy {g : G} (hg : IsGenerator F g) :
+    ∃ t : G → Strategy F F G M F,
+      keyGoalExpOracle g t (fun k k' => decide (k' = k)) = PMF.pure true := by
+  refine ⟨fun pk => Strategy.done (hg.equiv.symm pk), ?_⟩
+  rw [keyGoalOracle_eq_pkGoal]
+  simp only [pkGoalExp, lazySolver, Strategy.runLazy, PMF.pure_map, hg.equiv_symm_smul,
+    decide_true, PMF.bind_const]
+
+/-- The strategy experiment is not trivially winnable either: a strategy that runs an honest
+session and then outputs a fixed guess, without using what it saw, wins exact key recovery with
+probability exactly `1/|F|`. -/
+theorem keyRecoveryOracle_session_const_guess (g : G) (m : M) (k₀ : F) :
+    keyGoalExpOracle g (fun _ => Strategy.session m fun _ _ => Strategy.done k₀)
+      (fun k k' => decide (k' = k)) true = (Fintype.card F : ℝ≥0∞)⁻¹ := by
+  rw [keyRecoveryOracle_eq_dlog]
+  have h : (lazySolver fun _ : G => (Strategy.session m fun _ _ => Strategy.done k₀ :
+      Strategy F F G M F)) = fun _ => PMF.pure k₀ := by
+    funext pk
+    simp only [lazySolver, Strategy.runLazy, PMF.bind_const]
+  rw [h, dlogExp_const_guess]
 
 /-! ### A strawman protocol that leaks the key, compared with the real one -/
 
@@ -1291,6 +1691,23 @@ example (p : ℕ) [Fact p.Prime]
         (fun k b => decide (b = bit k)) =
       pkGoalExp (1 : ZMod p) (pkSolver choose Adv) fun k b => decide (b = bit k) :=
   keyGoalQueried_eq_pkGoal 1 (Fin.castLE_injective _) choose Adv _
+
+/-- The adaptive lazy-sampling reduction instantiated in that model with 256-bit messages: the
+experiment samples a hash table with `2 ^ 256` entries; the solver fixes an exponent only for the
+points that the strategy touches. -/
+example (p : ℕ) [Fact p.Prime]
+    (t : ZMod p → Strategy (ZMod p) (ZMod p) (ZMod p) (Fin (2 ^ 256)) (ZMod p)) :
+    keyGoalExpOracleRO (1 : ZMod p) t (fun k k' => decide (k' = k)) =
+      dlogExp (1 : ZMod p)
+        (lazySolver fun pk => (t pk).mapAns fun e : ZMod p => e • (1 : ZMod p)) :=
+  keyRecoveryOracleRO_eq_dlog ⟨one_ne_zero, fun x => ⟨x, by simp⟩⟩ t
+
+/-- A machine-checked proxy for "the lazy solver does not sample the oracle table": `lazySolver`
+is well-typed for an INFINITE message space (here `ℕ`), for which no uniform table exists and
+`pkSolver` cannot even be stated.  This is not a cost statement. -/
+noncomputable example {β : Type*} [Fintype F] [DecidableEq F] (t : G → Strategy F F G ℕ β) :
+    G → PMF β :=
+  lazySolver t
 
 /-- The generator hypothesis of section B cannot be dropped: in the two-dimensional module
 `ZMod 5 × ZMod 5` the element `(0, 1)` is not a multiple of the nonzero element `(1, 0)`.  A
