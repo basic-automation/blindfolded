@@ -2,4 +2,11 @@ import BlindPRF.Basic
 import BlindPRF.Prob
 import BlindPRF.Correctness
 import BlindPRF.PublicVerify
+import BlindPRF.Blindness
+import BlindPRF.Unlinkability
+import BlindPRF.KeyPrivacy
+import BlindPRF.PRFSecurity
+import BlindPRF.Unforgeability
+import BlindPRF.DLEQ
+import BlindPRF.Limitations
 import BlindPRF.Instance

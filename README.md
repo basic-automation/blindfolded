@@ -1,14 +1,18 @@
 # Blind PRF signing — a Lean 4 verified protocol
 
-**Status: work in progress.** The modules listed under "Proven so far" build with zero `sorry`
-and pass the axiom audit. The modules under "In progress" are not in the tree yet; nothing about
-them is claimed here.
+**Status: work in progress.** Everything in the tree is machine-checked; seven modules are
+still going through adversarial review, as marked below.
 
 ## The problem
 
 Party **A** holds a message `m`. Party **B** holds a secret key `k`. A wants a signature on `m`
-under B's key such that B learns nothing about `m` and A learns nothing about `k` beyond the
-signature itself.
+under B's key, without showing `m` to B and without being handed `k`.
+
+One caveat shapes everything that follows. The signature `k • H(m)` determines `k`
+mathematically, so "A learns nothing about the key" is false in the absolute sense for any
+protocol that computes this function, and it is not claimed here. What is proven instead is that
+the protocol gives A nothing beyond the signature, and that recovering `k` from what an
+honest-but-curious A sees is exactly the discrete-logarithm problem.
 
 ## The protocol
 
@@ -27,19 +31,32 @@ The signature is `σ = k • H(m)`.
 
 ## Proven so far
 
+Every module below compiles with zero `sorry`, and the whole tree passes the axiom audit
+(535 declarations, 404 theorems, standard axioms only).
+
+Reviewed and final:
+
 | File | Content |
 |---|---|
 | `BlindPRF/Basic.lean` | The protocol as plain functions; the group setting (`IsGenerator`). |
 | `BlindPRF/Prob.lean` | Uniform distributions on finite types; bijection, fibre and marginal rules. |
 | `BlindPRF/Correctness.lean` | An honest run outputs exactly `k • H(m)`, for every key, message and nonzero coin. |
 | `BlindPRF/PublicVerify.lean` | Optional pairing layer ("blind BLS"): public verification is complete and accepts only the genuine signature; A's check on B's reply accepts only the honest reply. |
-| `BlindPRF/Instance.lean` | Two concrete models satisfying every hypothesis (a toy group, and the order-11 subgroup of `(ℤ/23)ˣ`), with executable end-to-end tests. |
-| `Audit.lean` | Fails the build unless every declaration depends only on `propext`, `Classical.choice`, `Quot.sound`. |
+| `BlindPRF/Instance.lean` | Two concrete models satisfying every hypothesis (a toy group, and the order-11 subgroup of `(ℤ/23)ˣ`), with executable tests. |
+| `Audit.lean` | Fails the build on any un-imported proof file, or any axiom beyond `propext`, `Classical.choice`, `Quot.sound`. |
 
-## In progress
+Proved and machine-checked, but **adversarial review fixes still pending** — statements and
+docstrings may still change, and nothing here should be quoted as final:
 
-Message privacy against B, key privacy against A, PRF security, and a pairing-free
-accountability proof for B.
+| File | Content |
+|---|---|
+| `BlindPRF/Blindness.lean` | Message privacy against B: B's view has the same distribution for every message. |
+| `BlindPRF/Unlinkability.lean` | Two-session blindness game against a malicious signer, with a reply check; the tagging attack without one. |
+| `BlindPRF/KeyPrivacy.lean` | What A learns about the key: an explicit simulator, and key recovery as a discrete-log reduction. |
+| `BlindPRF/PRFSecurity.lean` | Pseudorandomness as a reduction to Decisional Diffie–Hellman (random-oracle model). |
+| `BlindPRF/Unforgeability.lean` | Passive unforgeability as a reduction to Computational Diffie–Hellman. |
+| `BlindPRF/DLEQ.lean` | Chaum–Pedersen proof that B used the committed key. |
+| `BlindPRF/Limitations.lean` | Negative results: what the protocol does not give. |
 
 ## Build
 
