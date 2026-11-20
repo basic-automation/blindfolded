@@ -75,8 +75,10 @@ coin per session. Each of the three conditions is shown to matter by a negative 
 | For any prior on messages, B's posterior equals its prior. | `message_view_independent` | unconditional |
 | **Blindness against a malicious signer**: B sees both blinded elements, replies arbitrarily, then sees both finished signatures, and still cannot tell which session was which — *provided A's reply check is perfectly sound*. | `Unlinkability.blindness` | unconditional |
 | The pairing check is such a check, for any public key B chooses. | `Unlinkability.blindness_pairing` | unconditional |
+| The same for any number of sessions: B cannot tell any assignment of messages to sessions from any other. B answers all sessions at once and A releases all outputs together. | `Unlinkability.blindnessN`, `Unlinkability.blindnessN_pairing` | unconditional |
 | Without a reply check, B links sessions to signatures with certainty. | `Unlinkability.tagging_attack` | negative |
 | If A releases outputs per session instead of all-or-nothing, B learns the order with certainty even with a sound check. | `Unlinkability.selective_abort` | negative |
+| If each session is checked against its own key rather than one common key, B links with certainty even though every check is sound. | `Unlinkability.per_client_keys_tagging` | negative |
 | If a hash value is the identity, B can tell. | `blind_dist_ne_of_hash_zero` | negative |
 | Sending `H(m)` unblinded fails the same definition. | `noBlind_dist_ne` | negative |
 | In a non-cyclic group, blinding can leak which line the hash lies on. | `Limitations.rankTwo_blind_dist_ne` | negative |
@@ -145,7 +147,9 @@ concrete group, so none of them is true merely because its hypotheses cannot be 
 - **Blindness with a merely statistically sound check.** `Unlinkability.blindness` needs a
   perfectly sound check, which the pairing gives. Combining it with the equality proof, whose
   soundness error is `1/q`, is not proved.
-- **More than two sessions in the blindness game**, concurrent or universally composable security.
+- **Other session schedules.** In the blindness theorems B answers all sessions at once and A
+  releases all outputs together. Interleaved or concurrent sessions, and universally composable
+  security, are not proved.
 - **A concrete pairing group**, and unforgeability of the pairing variant. The pairing is an
   abstract bilinear map; its only instance in the tree is multiplication modulo a prime.
 - **Anything about implementations**: group-membership and subgroup checks, cofactors, rejection

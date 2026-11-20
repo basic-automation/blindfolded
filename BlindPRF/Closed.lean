@@ -125,6 +125,10 @@ end Schnorr
 
 namespace Toy
 
+-- A's test `e b g₂ = e a pk` is decidable from public data; the instance lives in
+-- `BlindPRF.Unlinkability` as a scoped instance.
+open scoped BlindPRF.Unlinkability
+
 /-- None of the four demo hash values is the identity element. -/
 theorem demoHash_ne_zero (m : Fin 4) : demoHash m ≠ 0 := by
   fin_cases m <;> simp [demoHash] <;> decide
@@ -144,6 +148,19 @@ theorem malicious_signer_blindness (pk : ZMod 101) (m₀ m₁ : Fin 4) {S γ : T
         true :=
   Unlinkability.blindness_pairing (isGenerator_one 101) demoHash (demoHash_ne_zero m₀)
     (demoHash_ne_zero m₁) (pairing 101) 1 (pairing_nondegenerate 101) pk reply guess
+
+/-- **Blindness over many sessions**, closed.  The same with three sessions: for any two ways of
+assigning three messages to the three sessions, B's final output has the same distribution. -/
+theorem malicious_signer_blindness_three (pk : ZMod 101) (m : Fin 3 → Fin 4) {S γ : Type}
+    (reply : (Fin 3 → ZMod 101) → PMF (S × (Fin 3 → ZMod 101)))
+    (guess : S → Option (Fin 3 → ZMod 101) → PMF γ) (π π' : Equiv.Perm (Fin 3)) :
+    Unlinkability.blindnessGameN (ZMod 101) demoHash
+        (fun a b => decide (PublicVerify.checkReply (pairing 101) 1 pk a b)) m reply guess π =
+      Unlinkability.blindnessGameN (ZMod 101) demoHash
+        (fun a b => decide (PublicVerify.checkReply (pairing 101) 1 pk a b)) m reply guess π' :=
+  Unlinkability.blindnessN_pairing (isGenerator_one 101) demoHash m
+    (fun j => demoHash_ne_zero (m j)) (pairing 101) 1 (pairing_nondegenerate 101) pk reply guess
+    π π'
 
 /-- **Public verification**, closed: exactly the genuine signature verifies. -/
 theorem public_verification (k : ZMod 101) (m : Fin 4) (σ : ZMod 101) :
