@@ -1,25 +1,37 @@
 /-
   BlindPRF/Limitations.lean — machine-checked NEGATIVE results and attack surface.
 
-  Every other file of this development proves something the protocol DOES give.  This file
-  proves, with the same rigour, what it does NOT give, and which hypotheses cannot be dropped,
-  so that the positive theorems cannot be over-read.  Nothing here is a hardness statement and
-  nothing here is assumed: every theorem is an unconditional fact about the protocol functions
-  of `BlindPRF/Basic.lean`.
+  The other files of this development are organised around what the protocol DOES give; each
+  of them also records the negative results that belong to its own topic.  This file collects
+  in one place, with the same rigour, what the protocol does NOT give and which hypotheses
+  cannot be dropped, so that the positive theorems cannot be over-read.  Nothing here is a
+  hardness statement and no hardness assumption is used: every theorem is proved outright from
+  the hypotheses written in its statement, about the protocol functions of
+  `BlindPRF/Basic.lean` (and, for L7, the pairing layer of `BlindPRF/PublicVerify.lean`).
 
-  L1  `zero_coin_output`, `no_unblind_of_zero_coin`
+  L1  `zero_coin_output`, `zero_coin_output_any`, `zero_coin_blinded`, `no_unblind_of_zero_coin`
         A zero blinding scalar destroys CORRECTNESS (not privacy): this is why coins are units.
-  L2  `rankTwo_smul_dist_ne`, `rankTwo_blind_dist_ne`, `rankTwo_distinguisher`
-        Message privacy FAILS in a non-cyclic group: the cyclic hypothesis is necessary.
+  L2  `rankTwo_smul_dist_ne`, `rankTwo_blind_dist_ne`, `rankTwo_viewB_dist_ne`,
+      `rankTwo_distinguisher`, `blind_dist_eq_false_without_generator`,
+      `blind_dist_eq_iff_same_line`, `blind_dist_ne_of_not_same_line`,
+      `oneLineHash_blind_dist_eq`, `same_line_of_isGenerator`
+        Message privacy CAN fail in a non-cyclic group: the cyclic hypothesis of the privacy
+        theorems cannot simply be dropped.  (It is not literally necessary.  The exact
+        condition, in ANY module, is that the two hashes differ by a nonzero scalar: automatic
+        for non-identity hashes in a cyclic group, an extra condition on the hash otherwise.)
   L3  `coin_reuse_dist_ne`, `coin_reuse_distinguisher`
         Reusing one coin in two sessions lets B link them.
-  L4  `iterate_evaluate`, `evaluate_add`, `evaluate_smul`, `evaluate_hash_add`
-        B is a static Diffie–Hellman oracle for anyone who deviates from the protocol.
-  L5  `forge_of_known_hash_dlog`, `exists_forger`
+  L4  `iterate_evaluate`, `evaluate_add`, `evaluate_smul`, `evaluate_hash_add`,
+      `evaluate_hash_add_eq_smul_prf`
+        B is a static Diffie–Hellman oracle for anyone who deviates from the protocol.  (What
+        a deviating A gains from it is computational, not information-theoretic.)
+  L5  `forge_of_known_hash_dlog`, `exists_forger`, `exists_forger_of_ne_zero`
         Unforgeability rests entirely on the hash, and can only ever be computational.
   L6  `toy_key_recovery`, `toy_run_key_recovery`, `toy_isGenerator`, `toy_pairing_nondegenerate`
         All hypotheses hold in a totally broken group: "verified" does not mean "secure".
-  L7  `verify_random_prob`, `verify_genuine_prob`
+  L7  `verify_random_prob`, `verify_genuine_prob`, `verify_advantage`,
+      `verify_random_prob_lt_one`, `verify_random_prob_eq_one_iff` (and the instance
+      `verifyDecidable`)
         Public verifiability excludes pseudorandomness.
   L8  `exists_simulator_for_any_leak`
         An existential simulation statement would be vacuous.
@@ -30,6 +42,20 @@
   facts of L4 enable (Brown–Gallant, Cheon) and the assumptions that bound a deviating party
   (discrete log, CDH, DDH, one-more-DH) are mentioned in docstrings for orientation only; they
   are neither formalised, nor proven, nor assumed.
+
+  Overlap with the other files.  This file imports only `Basic`, `Correctness`, `Prob` and
+  `PublicVerify`, so that it can be read and checked on its own.  Several facts stated here
+  are therefore also proved, some of them in a sharper form, in the file devoted to their
+  topic, to which this file is NOT machine-linked.  At the time of writing: L2 and L3 in
+  `Blindness.lean` (`blind_dist_eq_iff_exists_unit`, `blind_dist_ne_rank_two`,
+  `reused_coin_dist_ne`); L5(a) and L8 in `KeyPrivacy.lean` (`prf_progHash`,
+  `exists_key_extractor`, of which L8 is a generalisation); L6 in `Instance.lean`
+  (`Toy.isGenerator_one`, `Toy.pairing_nondegenerate`).  Negative results that are not
+  repeated here include `blind_dist_ne_of_hash_zero` (`Blindness.lean`),
+  `no_protocol_hides_key_perfectly` (`KeyPrivacy.lean`), `tagging_attack`
+  (`Unlinkability.lean`), `prfReal_ne_prfRand` (`PRFSecurity.lean`) and `exists_forger_wins`
+  (`Unforgeability.lean`).  Whenever a docstring below names a theorem of another file, that
+  is a pointer for the reader and not a claim of this file.
 -/
 import BlindPRF.Correctness
 import BlindPRF.Prob
@@ -68,17 +94,25 @@ section ZeroCoin
 
 variable [Field F] [AddCommGroup G] [Module F G]
 
+/-- L1(a), general form: with the blinding scalar `0`, A's output is the identity WHATEVER
+scalar `c` A unblinds with.  (B's reply `k • (0 • P)` is already the identity.)  So the
+failure in `zero_coin_output` owes nothing to the convention `0⁻¹ = 0`. -/
+theorem zero_coin_output_any (c k : F) (P : G) : c • (k • ((0 : F) • P)) = 0 := by
+  simp
+
 /-- **L1(a). With the blinding scalar `0` the protocol outputs the identity, not the
-signature.**  Running the three protocol steps with "coin" `r = 0` (and Lean's convention
-`0⁻¹ = 0`) yields `0` for every key `k` and every hashed message `P`.
+signature.**  Running the three protocol steps with "coin" `r = 0` yields `0` for every key `k`
+and every hashed message `P`.  (The term `(0 : F)⁻¹` is `0` by Lean's convention, but that
+convention plays no role: `zero_coin_output_any` gives the same result for every unblinding
+scalar.)
 
 Practical consequence: an implementation must reject (or never sample) `r = 0`; this is why the
 coin of `blind`/`unblind` has type `Fˣ`.
 
 What this does NOT claim: that `r = 0` leaks anything.  It does not: B then receives `0 • P = 0`
 whatever the message is (`zero_coin_blinded`).  The failure is one of correctness only. -/
-theorem zero_coin_output (k : F) (P : G) : ((0 : F)⁻¹) • (k • ((0 : F) • P)) = 0 := by
-  simp
+theorem zero_coin_output (k : F) (P : G) : ((0 : F)⁻¹) • (k • ((0 : F) • P)) = 0 :=
+  zero_coin_output_any _ k P
 
 /-- With blinding scalar `0`, B receives the identity element for every message: the zero coin
 is not a privacy problem. -/
@@ -107,7 +141,7 @@ theorem no_unblind_of_zero_coin {P : G} (hP : P ≠ 0) :
 
 end ZeroCoin
 
-/-! ## L2. The cyclic (rank-one) hypothesis is necessary for message privacy -/
+/-! ## L2. The cyclic (rank-one) hypothesis cannot be dropped from message privacy -/
 
 section NonCyclic
 
@@ -118,7 +152,7 @@ def rankTwoHash (F : Type*) [Field F] : Bool → F × F := fun b => if b then (0
 variable [Field F]
 
 /-- Neither hash value of the counterexample is the identity: the failure of privacy below is
-NOT caused by the (separately necessary) condition `H m ≠ 0`. -/
+NOT caused by the (separately needed) condition `H m ≠ 0`. -/
 theorem rankTwoHash_ne_zero (b : Bool) : rankTwoHash F b ≠ 0 := by
   cases b <;> simp [rankTwoHash]
 
@@ -140,7 +174,7 @@ theorem not_isGenerator_prod (g : F × F) : ¬ IsGenerator F g := by
 
 variable [Fintype F] [DecidableEq F]
 
-/-- **L2. In a non-cyclic group the blinded element depends on the message** (raw form).  In
+/-- **L2. In a non-cyclic group the blinded element can depend on the message** (raw form).  In
 the rank-two module `F × F`, the uniformly blinded versions of the points `(1, 0)` and `(0, 1)`
 have DIFFERENT distributions: blinding by a scalar never leaves the line through the point.
 
@@ -155,30 +189,76 @@ theorem rankTwo_smul_dist_ne :
   rw [mul_one, mul_zero] at h1
   exact r.ne_zero h1
 
-/-- **L2. The cyclic hypothesis is necessary for message privacy (negative result).**  Run the
-protocol's blinding step in the rank-two group `G = F × F` with the two-message hash
-`rankTwoHash F` (both hash values nonzero).  Then B's view of message `false` and B's view of
-message `true` are DIFFERENT distributions.  So the hypothesis `IsGenerator F g` of the privacy
-theorems cannot be dropped (`not_isGenerator_prod` confirms it is the hypothesis that fails).
+/-- **L2. The cyclic hypothesis cannot be dropped from message privacy (negative result).**
+Run the protocol's blinding step in the rank-two group `G = F × F` with the two-message hash
+`rankTwoHash F` (both hash values nonzero).  Then the element B receives for message `false`
+and the element B receives for message `true` have DIFFERENT distributions.  (For B's whole
+view, key included, see `rankTwo_viewB_dist_ne`.)  So the hypothesis `IsGenerator F g` of the
+privacy theorems cannot simply be deleted (`blind_dist_eq_false_without_generator`;
+`not_isGenerator_prod` confirms that it is the hypothesis that fails here).
 
 Practical consequence: scalar blinding hides a point only inside the cyclic subgroup it
 generates, so in a non-cyclic group the blinded element leaks which subgroup / line the hash
 lies on; real implementations must work in a prime-order group (or clear cofactors) and
 validate that points lie in it.
 
-What this does NOT claim: that privacy fails in a cyclic group of prime order (there it holds
-perfectly; that is the positive theorem elsewhere).  Nor is it a model of a curve with a
-cofactor: such a group is not a module over the scalar field and cannot even be expressed in
-this development; the rank-two module is the nearest counterexample the model can state.  What
-leaks in general is the line `F • H m` through the hash (here: the whole message bit). -/
+What this does NOT claim:
+* That privacy fails for EVERY hash into a non-cyclic group.  It fails for this hash.  The
+  exact condition, valid in any module, is `blind_dist_eq_iff_same_line`: two messages are
+  indistinguishable to B exactly when their hashes differ by a nonzero scalar, and
+  `oneLineHash_blind_dist_eq` is a hash into the same non-cyclic group for which privacy
+  holds.  "Cyclic" is thus a sufficient condition that cannot be deleted, not a literally
+  necessary one.
+* That privacy fails in a cyclic group of prime order.  There any two non-identity hashes
+  differ by a nonzero scalar (`same_line_of_isGenerator`), so the two distributions are equal;
+  that is the positive theorem `blind_dist_eq` of `BlindPRF/Blindness.lean`.  The qualifier
+  "non-identity" matters: see `rankTwo_distinguisher`.
+* That this is a model of a curve with a cofactor: such a group is not a module over the scalar
+  field and cannot even be expressed in this development; the rank-two module is the nearest
+  counterexample the model can state. -/
 theorem rankTwo_blind_dist_ne :
     (unif Fˣ).map (blind (rankTwoHash F) false) ≠ (unif Fˣ).map (blind (rankTwoHash F) true) :=
   rankTwo_smul_dist_ne
 
+/-- L2 for B's whole view.  In the rank-two counterexample, everything B sees in a session
+(`viewB`: its own key together with the element it receives) has a different distribution for
+message `false` and for message `true`, whatever the key `k` is.  Same consequence and same
+non-claims as `rankTwo_blind_dist_ne`, from which it follows by forgetting the key. -/
+theorem rankTwo_viewB_dist_ne (k : F) :
+    (unif Fˣ).map (viewB (rankTwoHash F) k false) ≠
+      (unif Fˣ).map (viewB (rankTwoHash F) k true) := by
+  intro h
+  apply rankTwo_blind_dist_ne (F := F)
+  have h2 := congrArg (PMF.map Prod.snd) h
+  rw [PMF.map_comp, PMF.map_comp] at h2
+  exact h2
+
+/-- **L2, as a statement about the privacy theorem itself.**  The statement obtained from the
+message-privacy theorem ("for non-identity hashes, the blinded elements of any two messages are
+identically distributed") by deleting its generator hypothesis is FALSE in the group `F × F`.
+
+Practical consequence: the prime-order requirement on the group is a real requirement of the
+privacy guarantee, not a proof convenience.
+
+What this does NOT claim: that privacy fails for every hash into `F × F` (see
+`oneLineHash_blind_dist_eq`), or anything about groups of prime order. -/
+theorem blind_dist_eq_false_without_generator :
+    ¬ ∀ (H : Bool → F × F) (m₀ m₁ : Bool), H m₀ ≠ 0 → H m₁ ≠ 0 →
+      (unif Fˣ).map (blind H m₀) = (unif Fˣ).map (blind H m₁) :=
+  fun h => rankTwo_blind_dist_ne
+    (h (rankTwoHash F) false true (rankTwoHash_ne_zero false) (rankTwoHash_ne_zero true))
+
 /-- **L2, quantitatively: B reads the message off the blinded element with certainty.**  In the
 rank-two counterexample, the test "is the first coordinate zero?" applied to A's single
-protocol message returns the message bit `b` with probability ONE.  (In a cyclic group the best
-possible success probability for a uniformly random bit is one half.)
+protocol message returns the message bit `b` with probability ONE.
+
+For comparison (a pointer, not a claim of this file): in a group of prime order, and for two
+messages whose hashes are not the identity, the two blinded distributions are equal, so every
+test guesses a uniformly random bit with probability exactly one half (`blind_dist_eq`,
+`indGame_true` in `BlindPRF/Blindness.lean`).  The qualifier matters: if exactly one of the
+two hashes is the identity, the two distributions differ even in a prime-order group (a case of
+`blind_dist_ne_of_not_same_line` below; `blind_dist_ne_of_hash_zero` and `indGame_zero_hash_win`
+there).
 
 What this does NOT claim: see `rankTwo_blind_dist_ne`. -/
 theorem rankTwo_distinguisher (b : Bool) :
@@ -190,6 +270,109 @@ theorem rankTwo_distinguisher (b : Bool) :
   cases b <;> simp [blind, rankTwoHash]
 
 end NonCyclic
+
+/-! ### L2, exact form: what the blinded element reveals in an arbitrary module -/
+
+section SameLine
+
+section Algebra
+
+variable [Field F]
+
+/-- A two-message hash into the rank-two module `F × F` whose two values lie on ONE line:
+message `false` is sent to `(1, 0)` and message `true` to `(u, 0)`, for a nonzero scalar `u`.
+Both values are non-identity (`oneLineHash_ne_zero`) and, for `u ≠ 1`, they are different
+points (`oneLineHash_false_ne_true`). -/
+def oneLineHash (u : Fˣ) : Bool → F × F := fun b => if b then ((u : F), 0) else (1, 0)
+
+/-- Neither value of `oneLineHash` is the identity. -/
+theorem oneLineHash_ne_zero (u : Fˣ) (b : Bool) : oneLineHash u b ≠ 0 := by
+  cases b <;> simp [oneLineHash]
+
+/-- For `u ≠ 1` the two values of `oneLineHash` are different group elements, so
+`oneLineHash_blind_dist_eq` is not the trivial case of a constant hash. -/
+theorem oneLineHash_false_ne_true {u : Fˣ} (hu : u ≠ 1) :
+    oneLineHash u false ≠ oneLineHash u true := by
+  intro h
+  have h1 : (1 : F) = (u : F) := congrArg Prod.fst h
+  exact hu (Units.ext h1.symm)
+
+variable [AddCommGroup G] [Module F G]
+
+/-- What the cyclic hypothesis is used for: in a group with a generator, any two non-identity
+elements differ by a nonzero scalar.  Together with `blind_dist_eq_iff_same_line` this is the
+whole content of the positive message-privacy theorem, and it is exactly what fails in the
+rank-two counterexample (`rankTwo_blind_dist_ne`). -/
+theorem same_line_of_isGenerator {g : G} (hg : IsGenerator F g) {P Q : G} (hP : P ≠ 0)
+    (hQ : Q ≠ 0) : ∃ u : Fˣ, Q = (u : F) • P := by
+  obtain ⟨c, hc⟩ := (hg.of_ne_zero hP).spans Q
+  have hc0 : c ≠ 0 := by
+    rintro rfl
+    exact hQ (by rw [← hc, zero_smul])
+  exact ⟨Units.mk0 c hc0, hc.symm⟩
+
+end Algebra
+
+variable [Field F] [Fintype F] [DecidableEq F] [AddCommGroup G] [Module F G]
+
+/-- **L2, exact form.  The blinded element reveals exactly the line through the hash.**  In ANY
+module over the scalar field (cyclic or not, no hypothesis on the hashes): the blinded elements
+of `m` and of `m'` have the same distribution if and only if `H m'` is a nonzero scalar
+multiple of `H m`.
+
+Practical consequence: what one session shows B is the class of `H m` up to nonzero scalars,
+no more and no less.  A group of prime order has only two such classes, the identity and
+everything else (`same_line_of_isGenerator`), which is why the privacy theorems ask for a
+generator and for non-identity hashes; in a group that is not cyclic there are more classes,
+and B learns which one the hash is in.
+
+What this does NOT claim: anything computational, anything about several sessions, or anything
+about what B learns by other means than the protocol message. -/
+theorem blind_dist_eq_iff_same_line (H : M → G) (m m' : M) :
+    (unif Fˣ).map (blind H m) = (unif Fˣ).map (blind H m') ↔
+      ∃ u : Fˣ, H m' = (u : F) • H m := by
+  constructor
+  · intro heq
+    by_contra hne
+    refine map_ne_map_of_forall_ne (unif Fˣ) (unif Fˣ) (blind H m) (blind H m') ?_ heq
+    intro r r' hrr
+    refine hne ⟨r'⁻¹ * r, ?_⟩
+    have h2 := congrArg (fun x : G => ((r'⁻¹ : Fˣ) : F) • x) hrr
+    simp only [blind, smul_smul] at h2
+    rw [Units.val_mul, h2]
+    simp
+  · rintro ⟨u, hu⟩
+    refine (unif_map_eq_of_equiv (Equiv.mulRight u) (blind H m') (blind H m) (fun r => ?_)).symm
+    simp [blind, hu, smul_smul]
+
+/-- **L2, general negative form.**  In any module: if `H m'` is not a nonzero scalar multiple of
+`H m`, the element B receives for `m` and the element B receives for `m'` have different
+distributions.  `rankTwo_blind_dist_ne` is the instance `H m = (1, 0)`, `H m' = (0, 1)`.
+
+What this does NOT claim: that B can tell WHICH messages were used; it distinguishes the two
+lines `Fˣ • H m` and `Fˣ • H m'`. -/
+theorem blind_dist_ne_of_not_same_line (H : M → G) {m m' : M}
+    (h : ∀ u : Fˣ, H m' ≠ (u : F) • H m) :
+    (unif Fˣ).map (blind H m) ≠ (unif Fˣ).map (blind H m') := by
+  intro heq
+  obtain ⟨u, hu⟩ := (blind_dist_eq_iff_same_line H m m').mp heq
+  exact h u hu
+
+/-- **The cyclic hypothesis is not literally necessary.**  In the NON-cyclic group `F × F`
+(`not_isGenerator_prod`), the hash `oneLineHash u` gives B identically distributed blinded
+elements for its two messages.  So "message privacy fails in every non-cyclic group" would be
+an over-reading of `rankTwo_blind_dist_ne`: privacy for a pair of messages is governed by
+`blind_dist_eq_iff_same_line`, and what the cyclic hypothesis buys is that the condition there
+holds for ALL pairs of non-identity hashes, with no further assumption on the hash
+(`same_line_of_isGenerator`).
+
+What this does NOT claim: that it is safe to deploy the protocol in a non-cyclic group; a hash
+with all values on one line is a hash into a cyclic subgroup. -/
+theorem oneLineHash_blind_dist_eq (u : Fˣ) :
+    (unif Fˣ).map (blind (oneLineHash u) false) = (unif Fˣ).map (blind (oneLineHash u) true) :=
+  (blind_dist_eq_iff_same_line (oneLineHash u) false true).mpr ⟨u, by simp [oneLineHash]⟩
+
+end SameLine
 
 /-! ## L3. Coin reuse links sessions -/
 
@@ -203,12 +386,14 @@ variable [Field F] [Fintype F] [DecidableEq F] [AddCommGroup G] [Module F G]
 
 Practical consequence: the blinding scalar must be sampled freshly and independently for every
 session; a client with a stuck or repeated random number generator loses unlinkability (B
-learns at least whether two requests were for the same message).
+learns at least whether two requests were for messages with the same hash).
 
 What this does NOT claim: that B learns the messages themselves, or that sessions with
-independent coins can be linked (they cannot, in a prime-order group; that is the positive
-privacy theorem elsewhere, whose hypothesis "one fresh uniform coin per session" is thereby
-shown to be necessary). -/
+independent coins can be linked.  For independent uniform coins, in a prime-order group and for
+messages whose hashes are not the identity, they cannot: that is the positive multi-session
+theorem `multi_blind_dist_eq` of `BlindPRF/Blindness.lean` (a pointer, not a claim of this
+file).  The present theorem shows that its "one fresh coin per session" cannot be replaced by
+"one coin for all sessions". -/
 theorem coin_reuse_dist_ne (H : M → G) {m m' : M} (h : H m ≠ H m') :
     (unif Fˣ).map (fun r : Fˣ => (blind H m r, blind H m r)) ≠
       (unif Fˣ).map (fun r : Fˣ => (blind H m r, blind H m' r)) := by
@@ -250,8 +435,8 @@ variable [Field F] [AddCommGroup G] [Module F G]
 
 /-- **L4(a). Feeding replies back in yields the powers of the key.**  Querying B on `a`, then on
 B's reply, and so on `n` times, returns `k ^ n • a`.  A party that deviates from the protocol
-in this way collects the tuple `(a, k • a, k² • a, …, kⁿ • a)`, the "`n`-strong Diffie–Hellman"
-tuple.
+in this way collects, over `n` sessions, the tuple `(a, k • a, k² • a, …, kⁿ • a)`, the
+"`n`-strong Diffie–Hellman" tuple.
 
 Practical consequence: the key holder is a static Diffie–Hellman oracle, and this tuple is the
 input of the Brown–Gallant / Cheon key-recovery speed-ups, which is why deployments limit the
@@ -288,18 +473,37 @@ theorem evaluate_smul (k c : F) (a : G) : evaluate k (c • a) = c • evaluate 
 `a = H m + H m'`, which no honest A would send, is answered with the SUM of the signatures on
 `m` and `m'`.
 
-Practical consequence: an A that deviates from the protocol obtains more than "one signature on
-one message of its choice" per session (sums of signatures, strong-DH tuples, …).  Bounding
-what such an A can do with `n` sessions — namely, not produce `n + 1` signatures — is the
-one-more-Diffie–Hellman assumption, which is NOT proven (nor assumed) anywhere in this
-development.
+Practical consequence: an A that deviates from the protocol obtains something other than "one
+signature on one message of its choice" per session, and over `n` sessions it can collect sums
+of signatures, strong-DH tuples (`iterate_evaluate`), and so on.  Bounding what such an A can
+do with `n` sessions — namely, not produce `n + 1` signatures — is the one-more-Diffie–Hellman
+assumption, which is NOT proven (nor assumed) anywhere in this development.
 
-What this does NOT claim: that the sum reveals either signature individually, or that the
-protocol is insecure against a malicious A; it shows only that security against a malicious A
-cannot be argued session-by-session and rests on an unproven interactive assumption. -/
+What this does NOT claim:
+* That A gains anything information-theoretically.  In a group of prime order each single
+  reply, this one included, is ONE signature scaled by a scalar that does not depend on the key
+  (`evaluate_hash_add_eq_smul_prf`; for an arbitrary query `malicious_query_is_one_signature` in
+  `BlindPRF/KeyPrivacy.lean`), and one honest signature on a message with non-identity hash
+  already determines the key (`exists_simulator_for_any_leak`).  The scalar is merely unknown
+  to an A that cannot take discrete logarithms, so whatever a deviating A gains is
+  computational.
+* That the sum reveals either signature individually, or that the protocol is insecure against
+  a malicious A.  The theorem shows only that security against a malicious A cannot be argued
+  session-by-session and rests on an unproven interactive assumption. -/
 theorem evaluate_hash_add (H : M → G) (k : F) (m m' : M) :
     evaluate k (H m + H m') = prf H k m + prf H k m' :=
   smul_add k (H m) (H m')
+
+/-- Caveat to `evaluate_hash_add`: in a group of prime order, B's reply to the malicious query
+`H m + H m'` is information-theoretically ONE scaled signature on `m`, with a scalar `c` that
+is the same for every key.
+
+What this does NOT claim: that A can compute `c` (it is a discrete logarithm of the query in
+base `H m`), or that the reply is therefore harmless; see `evaluate_hash_add`. -/
+theorem evaluate_hash_add_eq_smul_prf {g : G} (hg : IsGenerator F g) (H : M → G) {m : M}
+    (hm : H m ≠ 0) (m' : M) : ∃ c : F, ∀ k : F, evaluate k (H m + H m') = c • prf H k m := by
+  obtain ⟨c, hc⟩ := (hg.of_ne_zero hm).spans (H m + H m')
+  exact ⟨c, fun k => by rw [← hc]; exact smul_comm k c (H m)⟩
 
 end StaticDH
 
@@ -342,9 +546,10 @@ no interaction.  (The function takes the discrete logarithm of the public key.)
 
 Practical consequence: no theorem of the form "for all adversaries, forging succeeds with small
 probability" can be true for this scheme when adversaries are arbitrary functions and the
-public key is known (or, by `exists_simulator_for_any_leak`, a single signature is known);
-unforgeability necessarily rests on an unproven computational hardness assumption about the
-concrete group, and can enter a development like this one only through explicit reductions.
+public key is known (or, by `exists_simulator_for_any_leak`, a single signature on a message
+with non-identity hash is known); unforgeability necessarily rests on an unproven computational
+hardness assumption about the concrete group, and can enter a development like this one only
+through explicit reductions.
 
 What this does NOT claim: that `forge` is efficiently computable.  It is obtained from the
 (non-constructive) inverse of `c ↦ c • g`; computing it is a discrete-logarithm computation,
@@ -366,9 +571,9 @@ to be the scalar field itself (`G := F`, acting on itself by multiplication; for
 this is the additive group of integers modulo `p`).  Then for any message whose hash is not
 zero, `signature / hash = key`.
 
-Practical consequence: "machine-verified" does NOT mean "secure".  The hypotheses under which
-this development proves its theorems — a field of scalars, a module over it, a generator
-(`toy_isGenerator`), for the pairing layer a non-degenerate bilinear map
+Practical consequence: "machine-verified" does NOT mean "secure".  The structural hypotheses
+under which this development proves its theorems — a field of scalars, a module over it, a
+generator (`toy_isGenerator`), for the pairing layer a non-degenerate bilinear map
 (`toy_pairing_nondegenerate`), and finiteness / decidable equality (take `F = ZMod p`) — are
 all satisfied by this group, so every theorem proven from them holds in it; yet in it the key
 is recovered from a single signature by one field division.  Security is exactly the unproven
@@ -376,7 +581,10 @@ hardness of discrete-logarithm-type problems in the concrete group that is deplo
 theorem here can supply it.
 
 What this does NOT claim: that key recovery is easy in elliptic-curve groups, or in any group
-other than this toy one. -/
+other than this toy one.  Nor is the sentence about "every theorem" itself a Lean theorem: what
+is machine-checked here is that the toy group has a generator and a non-degenerate pairing;
+that the other files use no further hypothesis on the group is checked by reading them (and by
+their own non-vacuity sections). -/
 theorem toy_key_recovery (H : M → F) (k : F) {m : M} (hm : H m ≠ 0) :
     prf H k m * (H m)⁻¹ = k := by
   rw [prf, smul_eq_mul, mul_inv_cancel_right₀ hm]
@@ -408,6 +616,14 @@ section PublicVerifiability
 variable {G₁ G₂ GT : Type*} [Field F]
   [AddCommGroup G₁] [Module F G₁] [AddCommGroup G₂] [Module F G₂] [AddCommGroup GT] [Module F GT]
 
+/-- The public verification test is decidable as soon as equality in the target group `GT` is.
+`PublicVerify.verify` is a plain definition, so instance search does not see through it; this
+instance lets a caller who has `[DecidableEq GT]` use `verify_random_prob` and
+`verify_genuine_prob` without building the decidability argument by hand. -/
+instance verifyDecidable [DecidableEq GT] (e : G₁ →ₗ[F] G₂ →ₗ[F] GT) (H : M → G₁) (g₂ pk : G₂)
+    (m : M) (σ : G₁) : Decidable (PublicVerify.verify e H g₂ pk m σ) :=
+  inferInstanceAs (Decidable (e σ g₂ = e (H m) pk))
+
 /-- The public test accepts the genuine signature with probability one (a restatement of
 `PublicVerify.verify_prf` in the form needed to compare with `verify_random_prob`). -/
 theorem verify_genuine_prob (e : G₁ →ₗ[F] G₂ →ₗ[F] GT) (H : M → G₁) (g₂ : G₂) (k : F) (m : M)
@@ -423,14 +639,22 @@ PUBLIC verification test accepts a uniformly random element of `G₁` with proba
 (`verify_genuine_prob`).  The test uses only public data, so everybody can run it.
 
 Practical consequence: once a pairing is available and the key `k • g₂` is published, anyone
-distinguishes signatures from random group elements (acceptance probability `1` against
-`1/|G₁|`); the pairing variant is a unique (verifiable) signature scheme and NOT a
-pseudorandom function towards parties who know the public key, and the DDH-based
-pseudorandomness statement of this development does not apply to it.
+distinguishes signatures from random group elements: acceptance probability `1` against
+`1/|G₁|`, i.e. advantage exactly `1 - 1/|G₁|` (`verify_advantage`), which is positive as soon
+as `G₁` has more than one element (`verify_random_prob_lt_one`).  The pairing variant is a
+unique (verifiable) signature scheme and NOT a pseudorandom function towards parties who know
+the public key.  The DDH-based pseudorandomness reduction of this development is of no help
+there: the test above is itself a successful distinguisher, so no assumption can make the
+outputs pseudorandom to such a party.
 
 What this does NOT claim: that the publicly verifiable variant is forgeable, or that the
 key-only (MAC) variant without a pairing is distinguishable from random; neither is decided
-here. -/
+here.  In the degenerate one-element group the two acceptance probabilities coincide
+(`verify_random_prob_eq_one_iff`) and nothing is distinguished.
+
+On the decidability argument: it is stated in the most general form (any decision procedure
+for the test; all of them give the same Boolean).  A caller with `[DecidableEq GT]` gets it
+from the instance `verifyDecidable`. -/
 theorem verify_random_prob [Fintype G₁] (e : G₁ →ₗ[F] G₂ →ₗ[F] GT) (H : M → G₁) (g₂ : G₂)
     (hnd : Function.Injective fun x : G₁ => e x g₂) (k : F) (m : M)
     [∀ σ : G₁, Decidable (PublicVerify.verify e H g₂ (PublicVerify.publicKey g₂ k) m σ)] :
@@ -443,6 +667,63 @@ theorem verify_random_prob [Fintype G₁] (e : G₁ →ₗ[F] G₂ →ₗ[F] GT)
     have hno : ¬ PublicVerify.verify e H g₂ (PublicVerify.publicKey g₂ k) m σ :=
       fun hv => hσ (PublicVerify.eq_prf_of_verify e H g₂ hnd hv)
     simp [hno]
+
+/-- **L7, as one number: the advantage of the public test is exactly `1 - 1/|G₁|`.**  The
+probability that the public test accepts the genuine signature minus the probability that it
+accepts a uniformly random element of `G₁` (both read as real numbers, so that the subtraction
+is the ordinary one) equals `1 - 1/|G₁|`.
+
+Practical consequence: for a group of cryptographic size the public test tells signatures from
+random elements essentially always.  (Reading the formula: the advantage is at least one half
+as soon as `G₁` has two elements, and it is zero exactly in the one-element group, see
+`verify_random_prob_eq_one_iff`.)
+
+What this does NOT claim: see `verify_random_prob`.  It is the advantage of this one test, a
+lower bound on what a party holding the public key can do. -/
+theorem verify_advantage [Fintype G₁] (e : G₁ →ₗ[F] G₂ →ₗ[F] GT) (H : M → G₁) (g₂ : G₂)
+    (hnd : Function.Injective fun x : G₁ => e x g₂) (k : F) (m : M)
+    [∀ σ : G₁, Decidable (PublicVerify.verify e H g₂ (PublicVerify.publicKey g₂ k) m σ)] :
+    (((PMF.pure (prf H k m)).map fun σ : G₁ =>
+        decide (PublicVerify.verify e H g₂ (PublicVerify.publicKey g₂ k) m σ)) true).toReal -
+      (((unif G₁).map fun σ : G₁ =>
+        decide (PublicVerify.verify e H g₂ (PublicVerify.publicKey g₂ k) m σ)) true).toReal =
+      1 - (Fintype.card G₁ : ℝ)⁻¹ := by
+  rw [verify_genuine_prob e H g₂ k m, verify_random_prob e H g₂ hnd k m]
+  simp
+
+/-- The degenerate edge of L7, exactly: a uniformly random element passes the public test with
+probability one if and only if `G₁` has exactly one element.  In every other group the test of
+`verify_random_prob` separates genuine signatures from random elements. -/
+theorem verify_random_prob_eq_one_iff [Fintype G₁] (e : G₁ →ₗ[F] G₂ →ₗ[F] GT) (H : M → G₁)
+    (g₂ : G₂) (hnd : Function.Injective fun x : G₁ => e x g₂) (k : F) (m : M)
+    [∀ σ : G₁, Decidable (PublicVerify.verify e H g₂ (PublicVerify.publicKey g₂ k) m σ)] :
+    ((unif G₁).map fun σ : G₁ =>
+      decide (PublicVerify.verify e H g₂ (PublicVerify.publicKey g₂ k) m σ)) true = 1 ↔
+      Fintype.card G₁ = 1 := by
+  rw [verify_random_prob e H g₂ hnd k m, ENNReal.inv_eq_one, Nat.cast_eq_one]
+
+/-- **L7, the gap is real.**  If `G₁` has more than one element, a uniformly random element
+passes the public test with probability strictly less than one, whereas the genuine signature
+passes with probability one (`verify_genuine_prob`): the public test is a distinguisher with
+nonzero advantage, for every key and every message.
+
+What this does NOT claim: see `verify_random_prob`. -/
+theorem verify_random_prob_lt_one [Fintype G₁] [Nontrivial G₁] (e : G₁ →ₗ[F] G₂ →ₗ[F] GT)
+    (H : M → G₁) (g₂ : G₂) (hnd : Function.Injective fun x : G₁ => e x g₂) (k : F) (m : M)
+    [∀ σ : G₁, Decidable (PublicVerify.verify e H g₂ (PublicVerify.publicKey g₂ k) m σ)] :
+    ((unif G₁).map fun σ : G₁ =>
+      decide (PublicVerify.verify e H g₂ (PublicVerify.publicKey g₂ k) m σ)) true < 1 := by
+  rw [verify_random_prob e H g₂ hnd k m]
+  exact ENNReal.inv_lt_one.mpr (by exact_mod_cast Fintype.one_lt_card)
+
+/-- Call pattern for L7: with decidable equality on the target group, the decidability argument
+of `verify_random_prob` is found by instance search (through `verifyDecidable`). -/
+example [Fintype G₁] [DecidableEq GT] (e : G₁ →ₗ[F] G₂ →ₗ[F] GT) (H : M → G₁) (g₂ : G₂)
+    (hnd : Function.Injective fun x : G₁ => e x g₂) (k : F) (m : M) :
+    ((unif G₁).map fun σ : G₁ =>
+      decide (PublicVerify.verify e H g₂ (PublicVerify.publicKey g₂ k) m σ)) true
+      = (Fintype.card G₁ : ℝ≥0∞)⁻¹ :=
+  verify_random_prob e H g₂ hnd k m
 
 end PublicVerifiability
 
@@ -464,8 +745,9 @@ Practical consequence: because one signature information-theoretically determine
 security definition of the shape "there exists a function that reproduces A's view from A's
 output" is satisfied by every protocol and says nothing.  This is why the key-privacy theorems
 of this development exhibit an EXPLICIT simulator (one scalar multiplication, no discrete
-logarithm) instead of asserting that one exists; a reader should distrust any simulation claim,
-here or elsewhere, whose simulator is only asserted to exist.
+logarithm; `simReply` in `BlindPRF/KeyPrivacy.lean`) instead of asserting that one exists; a
+reader should distrust any simulation claim, here or elsewhere, whose simulator is only
+asserted to exist.
 
 What this does NOT claim: that the protocol leaks the key in any practical sense.  The
 simulator `sim` produced here is non-constructive (it inverts `k ↦ k • H m`, a discrete

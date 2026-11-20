@@ -78,5 +78,33 @@ elab "#audit_choice_free " ids:ident+ : command => do
   else
     throwError "choice-free audit FAILED: {bad}"
 
+/-- Control for check 3: assert that a definition DOES depend on `Classical.choice`.  Used to
+show that check 3 can fail: the discrete-logarithm bijection is caught by it. -/
+elab "#audit_expect_choice " id:ident : command => do
+  let n ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo id
+  let axs ← Lean.collectAxioms n
+  if axs.contains ``Classical.choice then
+    logInfo m!"control passed: {n} depends on Classical.choice, as expected"
+  else
+    throwError "control FAILED: {n} was expected to depend on Classical.choice"
+
 #audit_blindprf_coverage
 #audit_blindprf_axioms
+
+-- Check 3.  Simulators: what a party's view is rebuilt from, without the secret.
+#audit_choice_free
+  BlindPRF.KeyPrivacy.simReply BlindPRF.KeyPrivacy.simViewA BlindPRF.KeyPrivacy.viewsSim
+  BlindPRF.KeyPrivacy.forgetExponents BlindPRF.KeyPrivacy.viewsKESim
+  BlindPRF.KeyPrivacy.simInteractiveChoose BlindPRF.KeyPrivacy.Strategy.mapAns
+  BlindPRF.DLEQ.simulate BlindPRF.DLEQ.extract
+
+-- Check 3.  Reductions: how a hard-problem instance is turned into the adversary's input.
+#audit_choice_free
+  BlindPRF.PRFSecurity.reductionCore BlindPRF.PRFSecurity.reductionPkCore
+  BlindPRF.PRFSecurity.reductionEntry
+  BlindPRF.Unforgeability.cdhSolverInput BlindPRF.Unforgeability.solverInput
+  BlindPRF.Unforgeability.hbcSimInput BlindPRF.Unforgeability.wireSim
+  BlindPRF.Unforgeability.leakCore
+
+-- Control: the discrete-logarithm bijection `F ≃ G` is exactly what check 3 is meant to catch.
+#audit_expect_choice BlindPRF.IsGenerator.equiv

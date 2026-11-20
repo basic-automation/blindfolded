@@ -10,3 +10,4 @@ import BlindPRF.Unforgeability
 import BlindPRF.DLEQ
 import BlindPRF.Limitations
 import BlindPRF.Instance
+import BlindPRF.Closed
