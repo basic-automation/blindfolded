@@ -31,6 +31,9 @@ elab "#audit_blindprf_coverage" : command => do
   let mut missing : Array Name := #[]
   let mut seen : Nat := 0
   for entry in ← dir.readDir do
+    if ← entry.path.isDir then
+      throwError "coverage audit: subdirectory {entry.path} found under BlindPRF/; this audit \
+        only knows flat module names, so extend it before adding nested modules"
     if entry.path.extension == some "lean" then
       seen := seen + 1
       let modName := Name.mkStr `BlindPRF (entry.path.fileStem.getD "")
@@ -52,7 +55,12 @@ elab "#audit_blindprf_axioms" : command => do
   let mut theorems : Nat := 0
   let mut bad : Array (Name × Array Name) := #[]
   for (n, ci) in env.constants.toList do
-    if (`BlindPRF).isPrefixOf n && !n.isInternal then
+    -- Select by the MODULE a declaration lives in, not by its name, so that private
+    -- declarations and anything declared outside the `BlindPRF` namespace are covered too.
+    let inProject := match env.getModuleIdxFor? n with
+      | some idx => (`BlindPRF).isPrefixOf (env.header.moduleNames[idx.toNat]!)
+      | none => false
+    if inProject then
       checked := checked + 1
       if ci matches .thmInfo _ then theorems := theorems + 1
       let axs ← Lean.collectAxioms n

@@ -18,8 +18,9 @@ are not what a quick reading would suggest, and each is itself a theorem in this
 2. **The bare protocol hides the message but is not "blind" in the blind-signature sense.** A
    dishonest B that answers each client under a different key can later tell which session produced
    which signature, with certainty (`Unlinkability.tagging_attack`). A must check B's reply.
-3. **Every theorem here holds in a group where the key falls out by one division**
-   (`Limitations.toy_key_recovery`). Security rests on the hardness of discrete log and
+3. **Every hypothesis of the generic theorems is satisfied in a group where the key falls out by
+   one division** (`Limitations.toy_isGenerator`, `Limitations.toy_key_recovery`), so the theorems
+   cannot by themselves imply any hardness. Security rests on the hardness of discrete log and
    Diffie–Hellman problems in the concrete group, which no proof assistant can establish.
 
 ## The protocol
@@ -64,8 +65,16 @@ explicitly defined solver. "Negative" means: a proof that something does *not* h
 
 ### B learns nothing about the message
 
-These require a prime-order group, `H(m)` not the identity element, and a fresh uniform nonzero
-coin per session. Each of the three conditions is shown to matter by a negative result below.
+These results are about what B sees *while signing*. B can compute `k • H(m')` for any guessed
+`m'`, so once B (or anyone holding `k`) sees a message together with its signature — as happens
+whenever a base-protocol signature is verified — the message is known to B. Hiding *which session*
+it came from is the separate property "Blindness against a malicious signer" below, which needs a
+sound reply check.
+
+They require a prime-order group, `H(m)` not the identity element, and a fresh uniform coin per
+session; the group and hash conditions, and freshness, are each shown to matter by a negative
+result below. (The coin is also nonzero, but only because A must invert it to unblind; that is a
+correctness requirement, not a privacy one.)
 
 | Claim | Theorem | Kind |
 |---|---|---|
@@ -73,7 +82,7 @@ coin per session. Each of the three conditions is shown to matter by a negative 
 | For any pair of messages and any strategy, B names the submitted one with probability exactly 1/2. | `indGame_true` | unconditional |
 | The same for many sessions jointly, with independent coins. | `multi_blind_dist_eq` | unconditional |
 | For any prior on messages, B's posterior equals its prior. | `message_view_independent` | unconditional |
-| **Blindness against a malicious signer**: B sees both blinded elements, replies arbitrarily, then sees both finished signatures, and still cannot tell which session was which — *provided A's reply check is perfectly sound*. | `Unlinkability.blindness` | unconditional |
+| **Blindness against a malicious signer**: B sees both blinded elements, replies arbitrarily, then sees both finished signatures, and still cannot tell which session was which — *provided A's reply check is perfectly sound*. The two messages are fixed in advance; with the pairing check the signer may also choose them and the public key itself (`Unlinkability.blindness_pairing_two_stage`). | `Unlinkability.blindness` | unconditional |
 | The pairing check is such a check, for any public key B chooses. | `Unlinkability.blindness_pairing` | unconditional |
 | The same for any number of sessions: B cannot tell any assignment of messages to sessions from any other. B answers all sessions at once and A releases all outputs together. | `Unlinkability.blindnessN`, `Unlinkability.blindnessN_pairing` | unconditional |
 | Without a reply check, B links sessions to signatures with certainty. | `Unlinkability.tagging_attack` | negative |
@@ -90,8 +99,8 @@ coin per session. Each of the three conditions is shown to matter by a negative 
 |---|---|---|
 | A's whole view of a session is produced from the signature alone by an explicit simulator (one scalar multiplication; no key, no discrete log). | `KeyPrivacy.viewA_eq_simViewA` | unconditional |
 | One signature determines the key; no correct protocol for this function can hide it perfectly. | `KeyPrivacy.prf_injective_key`, `KeyPrivacy.no_protocol_hides_key_perfectly` | negative |
-| For an honest-but-curious A over any number of sessions, key recovery equals the discrete-log experiment for an explicit solver. | `KeyPrivacy.keyRecovery_eq_dlog`, `KeyPrivacy.keyRecoveryRO_eq_dlog` | reduction |
-| The same for an A that chooses messages and oracle queries adaptively, with the solver sampling the oracle lazily. | `KeyPrivacy.keyRecoveryOracle_eq_dlog` | reduction |
+| For an honest-but-curious A over any number of sessions, on messages chosen by a fixed rule (adaptive choice: `KeyPrivacy.keyRecoveryAdaptive_eq_dlog`), key recovery equals the discrete-log experiment for an explicit solver. | `KeyPrivacy.keyRecovery_eq_dlog`, `KeyPrivacy.keyRecoveryRO_eq_dlog` | reduction |
+| The same for an A that chooses messages, oracle queries (answered with exponents) and deviating queries `x • g` adaptively, with the solver sampling the oracle lazily (deviations cover every group element when `g` generates the group). | `KeyPrivacy.keyRecoveryOracle_eq_dlog` | reduction |
 | An A that sends arbitrary group elements gets `k • a` for a point of its choice each session; repeated, `kⁿ • a`. | `KeyPrivacy.malicious_query_is_one_signature`, `Limitations.iterate_evaluate` | negative |
 
 ### The output is a pseudorandom function (random-oracle model)
@@ -99,7 +108,7 @@ coin per session. Each of the three conditions is shown to matter by a negative 
 | Claim | Theorem | Kind |
 |---|---|---|
 | An explicit map turns a Diffie–Hellman triple into the real hash-and-value tables, and a non-Diffie–Hellman triple into uniformly random tables. | `PRFSecurity.reduction_real`, `PRFSecurity.reduction_rand` | reduction |
-| Every distinguisher's advantage is at most the DDH advantage of an explicit distinguisher built from it, plus `1/q`. | `PRFSecurity.prfAdvantage_le_ddhAdvantage_add` | reduction |
+| Every distinguisher that sees the whole hash table and value table (but has no evaluation oracle) has advantage at most the DDH advantage of an explicit distinguisher built from it, plus `1/q`; the same with the public key also in view. | `PRFSecurity.prfAdvantage_le_ddhAdvantage_add`, `PRFSecurity.prfPkAdvantage_le_ddhAdvantage_add` | reduction |
 | The same for adaptive oracle adversaries, with lazy sampling. | `PRFSecurity.prfAdvantage_oracle_le` | reduction |
 | The real and random worlds are different distributions, so pseudorandomness can only be computational. | `PRFSecurity.prfReal_ne_prfRand` | negative |
 
@@ -108,7 +117,7 @@ coin per session. Each of the three conditions is shown to matter by a negative 
 | Claim | Theorem | Kind |
 |---|---|---|
 | Forging a signature on a target message fixed in advance — given the public key, the whole hash table and the signatures on all other messages — equals the Computational Diffie–Hellman experiment for an explicit solver. | `Unforgeability.forge_eq_cdh` | reduction |
-| The same for an honest-but-curious A after its own sessions, and for an eavesdropper on others' sessions. | `Unforgeability.hbc_eq_cdh`, `Unforgeability.passive_eq_cdh` | reduction |
+| The same for an honest-but-curious A that ran sessions on messages fixed in advance and all different from the target (this restriction is necessary), and for an eavesdropper on others' sessions on messages fixed in advance. | `Unforgeability.hbc_eq_cdh`, `Unforgeability.passive_eq_cdh` | reduction |
 | If discrete logs of hash outputs are known, anyone forges from the public key. | `Limitations.forge_of_known_hash_dlog` | negative |
 
 ### Checking B's reply
@@ -137,7 +146,9 @@ concrete group, so none of them is true merely because its hypotheses cannot be 
   cheap is a matter of reading its (short) definition. `Audit.lean` checks one proxy: the
   deterministic cores do not use classical choice, so they cannot take a discrete log that way.
   The table-based reductions build one entry per message, so they are cheap only for message
-  spaces small enough to tabulate; the lazy-sampling versions exist to remove that restriction.
+  spaces small enough to tabulate. The lazy-sampling versions give solvers whose definitions touch
+  only the queried points (by inspection); the theorems themselves still assume a finite message
+  type, because the real experiment samples the whole oracle.
 - **A real hash function.** The random oracle is a uniformly random function on a finite message
   type. No concrete hash-to-group map is modelled.
 - **The outer hash.** Deployed 2HashDH applies a second hash to `(m, k • H(m))`. It is treated
