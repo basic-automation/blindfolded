@@ -1,24 +1,30 @@
 /-
-  BlindPRF/Instance.lean — concrete models, so that no theorem in this development is vacuous.
+  BlindPRF/Instance.lean — concrete models: the hypotheses of the theorems are satisfiable.
 
   Every security theorem is stated for an abstract scalar field `F` and an abstract `F`-module
   `G` with a generator (`IsGenerator F g`).  This file exhibits two concrete models in which all
-  of those hypotheses hold, and runs the protocol in them:
+  of those hypotheses hold, and runs the protocol in them.  That shows the hypotheses are jointly
+  satisfiable.  It does NOT show that any instantiation is secure: see the warning below.
 
   1. `Toy`: `F = G = ZMod p` with generator `1`.  This is the additive group of integers mod `p`.
      It satisfies every algebraic hypothesis (and carries a non-degenerate bilinear "pairing",
-     namely multiplication), but discrete logarithms in it are trivial, so it is useless as a
-     cryptographic group.  Its role is purely logical: the hypotheses are satisfiable.
+     namely multiplication), but discrete logarithms in it are trivial: one field division
+     recovers the key from one signature.  Its role is purely logical.
 
   2. `Schnorr`: a genuine multiplicative Diffie–Hellman group — the subgroup of order 11 of
      `(ℤ/23)ˣ` (the quadratic residues modulo the safe prime 23 = 2·11 + 1), with scalars
      `F = ZMod 11`.  It shows that the additive `Module` formulation used throughout is exactly
      the usual "cyclic group of prime order `q` with exponents mod `q`" setting, where `k • P`
-     reads `P ^ k`.  The parameters are of course far too small to be secure; real deployments
-     use a ~256-bit elliptic-curve group (e.g. ristretto255 or P-256, as in RFC 9497).
+     reads `P ^ k`.  The parameters are far too small to be secure; real deployments use a
+     ~256-bit elliptic-curve group.
 
-  The `#guard` lines are executed by the compiler when this file is built: they are runnable
-  end-to-end tests of the protocol functions on concrete numbers.
+  WARNING.  The demo hash functions below are lookup tables with publicly known discrete
+  logarithms, so signatures under them can be forged from the public key alone.  They are
+  functional tests of the protocol arithmetic, nothing more.  Security needs a hash that behaves
+  like a random oracle into the group.
+
+  The `#guard` lines are executed (as compiled code) when this file is built.  They are tests on
+  concrete numbers, not proofs; the `example`s and theorems are the kernel-checked statements.
 -/
 import BlindPRF.PublicVerify
 
